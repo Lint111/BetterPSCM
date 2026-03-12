@@ -1,0 +1,208 @@
+import { execCm, getCmWorkspaceRoot } from './cmCli';
+import { log } from '../util/logger';
+import type { PlasticBackend } from './backend';
+import type {
+	StatusResult,
+	CheckinResult,
+	NormalizedChange,
+	StatusChangeType,
+	BranchInfo,
+} from './types';
+
+const CM_CHANGE_TYPE_MAP: Record<string, StatusChangeType> = {
+	PR: 'private',
+	AD: 'added',
+	CO: 'checkedOut',
+	CH: 'changed',
+	DE: 'deleted',
+	LD: 'locallyDeleted',
+	MV: 'moved',
+	RP: 'replaced',
+	CP: 'copied',
+	IG: 'ignored',
+	HD: 'changed',
+};
+
+export class CliBackend implements PlasticBackend {
+	readonly name = 'cm CLI';
+
+	async getStatus(showPrivate: boolean): Promise<StatusResult> {
+		const result = await execCm(['status', '--machinereadable', '--all']);
+		if (result.exitCode !== 0) {
+			throw new Error(`cm status failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
+		}
+
+		const lines = result.stdout.split(/\r?\n/).filter(l => l.length > 0);
+		const changes: NormalizedChange[] = [];
+
+		for (const line of lines) {
+			if (line.startsWith('STATUS ')) continue;
+			const parsed = parseStatusLine(line);
+			if (!parsed) continue;
+			if (!showPrivate && parsed.changeType === 'private') continue;
+			changes.push(parsed);
+		}
+
+		return { changes };
+	}
+
+	async getCurrentBranch(): Promise<string | undefined> {
+		const result = await execCm(['wi', '--machinereadable']);
+		if (result.exitCode !== 0) {
+			throw new Error(`cm wi failed (exit ${result.exitCode}): ${result.stderr}`);
+		}
+
+		const line = result.stdout.trim();
+		const match = line.match(/^BR\s+(\S+)/);
+		return match?.[1] ?? undefined;
+	}
+
+	async checkin(paths: string[], comment: string): Promise<CheckinResult> {
+		const args = ['checkin', `-c=${comment}`, '--machinereadable', ...paths];
+		const result = await execCm(args);
+
+		if (result.exitCode !== 0) {
+			throw new Error(`cm checkin failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
+		}
+
+		const csMatch = result.stdout.match(/cs:(\d+)/);
+		const branchMatch = result.stdout.match(/(?:^|\s)br:([^\s]+)/m)
+			|| result.stdout.match(/branch\s+"?([^"\n]+)/);
+
+		if (!csMatch) {
+			throw new Error(`cm checkin succeeded but could not parse changeset ID from: ${result.stdout}`);
+		}
+
+		log(`Checked in ${paths.length} file(s): "${comment}"`);
+
+		return {
+			changesetId: parseInt(csMatch[1], 10),
+			branchName: branchMatch?.[1] ?? 'unknown',
+		};
+	}
+
+	async getFileContent(revSpec: string): Promise<Uint8Array | undefined> {
+		const result = await execCm(['cat', revSpec, '--raw']);
+		if (result.exitCode !== 0) {
+			// Exit code != 0 for "file not found at revision" is legitimate absence
+			return undefined;
+		}
+		return Buffer.from(result.stdout, 'binary');
+	}
+
+	async listBranches(): Promise<BranchInfo[]> {
+		const result = await execCm([
+			'find', 'branch',
+			'--format={name}#{id}#{owner}#{date}#{comment}#{ismainbranch}',
+			'--nototal',
+		]);
+		if (result.exitCode !== 0) {
+			throw new Error(`cm find branch failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
+		}
+
+		const lines = result.stdout.split(/\r?\n/).filter(l => l.length > 0);
+		return lines.map(parseBranchLine).filter((b): b is BranchInfo => b !== undefined);
+	}
+
+	async createBranch(name: string, comment?: string): Promise<BranchInfo> {
+		const args = ['branch', 'create', name];
+		if (comment) {
+			args.push(`-c=${comment}`);
+		}
+		const result = await execCm(args);
+		if (result.exitCode !== 0) {
+			throw new Error(`cm branch create failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
+		}
+
+		log(`Created branch "${name}"`);
+		return {
+			id: 0,
+			name,
+			owner: '',
+			date: '',
+			comment: comment ?? undefined,
+			isMain: false,
+		};
+	}
+
+	async deleteBranch(branchId: number): Promise<void> {
+		const result = await execCm(['branch', 'delete', String(branchId)]);
+		if (result.exitCode !== 0) {
+			throw new Error(`cm branch delete failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
+		}
+		log(`Deleted branch ${branchId}`);
+	}
+
+	async switchBranch(branchName: string): Promise<void> {
+		const result = await execCm(['switch', `br:${branchName}`]);
+		if (result.exitCode !== 0) {
+			throw new Error(`cm switch failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
+		}
+		log(`Switched to branch "${branchName}"`);
+	}
+}
+
+function parseBranchLine(line: string): BranchInfo | undefined {
+	const parts = line.split('#');
+	if (parts.length < 6) return undefined;
+
+	return {
+		name: parts[0],
+		id: parseInt(parts[1], 10) || 0,
+		owner: parts[2],
+		date: parts[3],
+		comment: parts[4] || undefined,
+		isMain: parts[5] === 'True',
+	};
+}
+
+function parseStatusLine(line: string): NormalizedChange | undefined {
+	const typeCode = line.substring(0, 2).trim();
+	const changeType = CM_CHANGE_TYPE_MAP[typeCode];
+	if (!changeType) return undefined;
+
+	const rest = line.substring(3);
+	const lastSpace = rest.lastIndexOf(' ');
+	if (lastSpace < 0) return undefined;
+
+	const beforeMerge = rest.substring(0, lastSpace);
+	const secondLastSpace = beforeMerge.lastIndexOf(' ');
+	if (secondLastSpace < 0) return undefined;
+
+	const isDirStr = beforeMerge.substring(secondLastSpace + 1);
+	let filePath = beforeMerge.substring(0, secondLastSpace);
+	if (!filePath) return undefined;
+
+	// cm status returns absolute paths — strip the workspace root to get relative paths
+	filePath = stripWorkspaceRoot(filePath);
+
+	return {
+		path: filePath,
+		changeType,
+		dataType: isDirStr === 'True' ? 'Directory' : 'File',
+	};
+}
+
+/**
+ * Strip the workspace root prefix from an absolute path to produce a relative path.
+ * Handles both forward and back slashes, case-insensitive on Windows.
+ */
+function stripWorkspaceRoot(filePath: string): string {
+	const root = getCmWorkspaceRoot();
+	if (!root) return filePath;
+
+	// Normalize separators for comparison
+	const normalizedPath = filePath.replace(/\\/g, '/');
+	const normalizedRoot = root.replace(/\\/g, '/').replace(/\/$/, '');
+
+	// Case-insensitive comparison (Windows paths)
+	if (normalizedPath.toLowerCase().startsWith(normalizedRoot.toLowerCase())) {
+		let relative = normalizedPath.substring(normalizedRoot.length);
+		if (relative.startsWith('/')) {
+			relative = relative.substring(1);
+		}
+		return relative;
+	}
+
+	return filePath;
+}
