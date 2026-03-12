@@ -1,0 +1,316 @@
+import * as vscode from 'vscode';
+import { initAuth, hasStoredCredentials, createAuthMiddleware, loginWithToken, loginWithPAT, logout } from './api/auth';
+import { getClient, getOrgName, getWorkspaceGuid, resetClient } from './api/client';
+import { isConfigured } from './util/config';
+import { log, logError } from './util/logger';
+import { DisposableStore } from './util/disposable';
+import { PlasticScmProvider } from './scm/plasticScmProvider';
+import { PlasticStatusBar } from './statusBar/plasticStatusBar';
+import { registerStagingCommands } from './commands/staging';
+import { registerCheckinCommands } from './commands/checkin';
+import { registerGeneralCommands } from './commands/general';
+import { registerBranchCommands } from './commands/branch';
+import { registerAuthCommands } from './commands/auth';
+import { BranchesTreeProvider } from './views/branchesTreeProvider';
+import { COMMANDS, SETTINGS } from './constants';
+import { detectWorkspace, detectClientConfig, detectCachedToken, hasPlasticWorkspace } from './util/plasticDetector';
+import { detectCm, setCmWorkspaceRoot, isCmAvailable } from './core/cmCli';
+import { setBackend } from './core/backend';
+import { CliBackend } from './core/backendCli';
+import { RestBackend } from './core/backendRest';
+
+const disposables = new DisposableStore();
+
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
+	log('Plastic SCM Pro extension activating...');
+
+	// Initialize auth with secret storage
+	initAuth(context.secrets);
+
+	// Register auth commands (always available, even before config)
+	registerAuthCommands(context);
+
+	// Register stub commands for features not yet implemented (prevents "command not found")
+	registerStubCommands(context);
+
+	// Auto-detect workspace from .plastic folder if not yet configured
+	await autoDetectAndConfigure();
+
+	// Detect cm CLI early so isConfigured() can account for it
+	const wsFolder = vscode.workspace.workspaceFolders?.[0];
+	if (wsFolder) {
+		setCmWorkspaceRoot(wsFolder.uri.fsPath);
+		await detectCm();
+	}
+
+	if (!isConfigured()) {
+		log('Extension not configured. Waiting for settings.');
+		const welcomeProvider = disposables.add(
+			vscode.scm.createSourceControl('plasticScm', 'Plastic SCM'),
+		);
+		welcomeProvider.inputBox.placeholder = 'Configure Plastic SCM settings to get started';
+		context.subscriptions.push(disposables);
+
+		// Watch for config changes
+		context.subscriptions.push(
+			vscode.workspace.onDidChangeConfiguration(e => {
+				if (e.affectsConfiguration('plasticScm')) {
+					if (isConfigured()) {
+						log('Configuration detected, reactivating...');
+						disposables.dispose();
+						setupProvider(context);
+					}
+				}
+			}),
+		);
+		return;
+	}
+
+	await setupProvider(context);
+	context.subscriptions.push(disposables);
+
+	log('Plastic SCM Pro extension activated');
+}
+
+/**
+ * Auto-detect Plastic SCM workspace info from the .plastic folder
+ * and populate settings if they are empty.
+ */
+async function autoDetectAndConfigure(): Promise<void> {
+	const wsFolder = vscode.workspace.workspaceFolders?.[0];
+	if (!wsFolder) return;
+
+	const wsRoot = wsFolder.uri.fsPath;
+	if (!hasPlasticWorkspace(wsRoot)) {
+		log('No .plastic workspace detected in opened folder');
+		return;
+	}
+
+	const info = detectWorkspace(wsRoot);
+	if (!info) return;
+
+	log(`Auto-detected Plastic workspace: ${info.workspaceName} (${info.workspaceGuid})`);
+	log(`  Org: ${info.organizationName}, Repo: ${info.repositoryName}`);
+	log(`  Branch: ${info.currentBranch}, Cloud: ${info.isCloud}`);
+
+	const config = vscode.workspace.getConfiguration();
+
+	// Build list of settings that need to be populated
+	const desired: Array<[string, string]> = [
+		[SETTINGS.serverUrl, info.serverUrl],
+		[SETTINGS.organizationName, info.organizationName],
+		[SETTINGS.repositoryName, info.repositoryName],
+		[SETTINGS.workspaceGuid, info.workspaceGuid],
+	];
+
+	const updates = desired.filter(([key, value]) => {
+		const current = config.get<string>(key);
+		if (!current) return true;
+		// Re-write serverUrl if the stored value is invalid
+		if (key === SETTINGS.serverUrl && !current.startsWith('http://') && !current.startsWith('https://')) {
+			log(`  Fixing invalid ${key}: "${current}" → "${value}"`);
+			return true;
+		}
+		// Re-write organizationName if it changed (e.g., display name → slug)
+		if (key === SETTINGS.organizationName && current !== value) {
+			log(`  Updating ${key}: "${current}" → "${value}"`);
+			return true;
+		}
+		return false;
+	});
+
+	if (updates.length > 0) {
+		// Write all settings concurrently to avoid partial writes
+		await Promise.all(
+			updates.map(async ([key, value]) => {
+				await config.update(key, value, vscode.ConfigurationTarget.Workspace);
+				log(`  Auto-configured ${key} = ${value}`);
+			}),
+		);
+
+		const clientInfo = detectClientConfig();
+		if (clientInfo) {
+			log(`  Client mode: ${clientInfo.workingMode}, user: ${clientInfo.userEmail}`);
+		}
+
+		vscode.window.showInformationMessage(
+			`Plastic SCM: Auto-detected workspace "${info.workspaceName}" on branch ${info.currentBranch}`,
+		);
+	}
+}
+
+async function setupProvider(context: vscode.ExtensionContext): Promise<void> {
+	const wsFolder = vscode.workspace.workspaceFolders?.[0];
+	if (!wsFolder) {
+		log('No workspace folder open');
+		return;
+	}
+
+	// cm CLI was already detected in activate(), just check availability
+	const cmAvailable = isCmAvailable();
+
+	// Setup auth: try stored credentials first, validate them, then fall back to cached SSO
+	let hasCreds = await hasStoredCredentials();
+
+	if (hasCreds) {
+		try {
+			const client = getClient();
+			client.use(createAuthMiddleware());
+			log('Auth middleware attached with stored credentials');
+
+			// Validate stored credentials with a lightweight API call
+			const valid = await validateCredentials();
+			if (!valid) {
+				log('Stored credentials are invalid, clearing and retrying with SSO...');
+				await logout();
+				hasCreds = await tryAutoLoginFromDesktopClient();
+			}
+		} catch (err) {
+			logError('Failed to setup auth', err);
+			await logout();
+			hasCreds = await tryAutoLoginFromDesktopClient();
+		}
+	} else {
+		// Try to pick up cached SSO token from Plastic desktop client
+		hasCreds = await tryAutoLoginFromDesktopClient();
+	}
+
+	// Set the active backend: REST if authenticated, CLI as fallback
+	if (hasCreds) {
+		setBackend(new RestBackend());
+	} else if (cmAvailable) {
+		log('REST API auth failed — using cm CLI backend');
+		setBackend(new CliBackend());
+	} else {
+		log('No backend available — neither REST API nor cm CLI');
+	}
+
+	// Create the SCM provider
+	const provider = disposables.add(
+		new PlasticScmProvider(wsFolder.uri, context.workspaceState),
+	);
+
+	// Register all commands
+	registerStagingCommands(context, provider);
+	registerCheckinCommands(context, provider);
+	registerGeneralCommands(context, provider);
+
+	// Create branch tree view
+	const branchTree = disposables.add(new BranchesTreeProvider());
+	disposables.add(vscode.window.registerTreeDataProvider('plasticScm.branchesView', branchTree));
+
+	// Register branch commands (replaces stubs)
+	registerBranchCommands(context, provider, branchTree);
+
+	// Create status bar
+	const statusBar = disposables.add(new PlasticStatusBar(provider));
+
+	// Always start polling — pollStatus handles auth errors gracefully
+	provider.start();
+
+	if (!hasCreds) {
+		log('No stored credentials. Polling will attempt unauthenticated requests.');
+	}
+
+	// Watch for config changes
+	context.subscriptions.push(
+		vscode.workspace.onDidChangeConfiguration(e => {
+			if (e.affectsConfiguration('plasticScm')) {
+				log('Configuration changed, consider restarting the extension');
+			}
+		}),
+	);
+}
+
+/**
+ * Validate stored credentials by making a lightweight API call.
+ * Returns true if credentials are valid.
+ */
+async function validateCredentials(): Promise<boolean> {
+	try {
+		const client = getClient();
+		const orgName = getOrgName();
+		const workspaceGuid = getWorkspaceGuid();
+		await client.GET(
+			'/api/v1/organizations/{organizationName}/workspaces/{workspaceGuid}',
+			{ params: { path: { organizationName: orgName, workspaceGuid } } },
+		);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Try to automatically sign in using the Unity SSO token cached by the Plastic desktop client.
+ * Returns true if auto-login succeeded.
+ */
+async function tryAutoLoginFromDesktopClient(): Promise<boolean> {
+	const cachedToken = detectCachedToken();
+	if (!cachedToken) {
+		log('No cached Unity SSO token found from desktop client');
+		return false;
+	}
+
+	log(`Found cached Unity SSO token for ${cachedToken.user} (server: ${cachedToken.server})`);
+
+	try {
+		// Use the Unity SSO JWT directly as Bearer token
+		await loginWithPAT(cachedToken.token);
+
+		// Validate it actually works against the API
+		const valid = await validateCredentials();
+		if (valid) {
+			log('Auto-login with Unity SSO token succeeded (direct Bearer)');
+			vscode.window.showInformationMessage(
+				`Plastic SCM: Signed in as ${cachedToken.user} (via Unity SSO)`,
+			);
+			return true;
+		}
+
+		// Direct Bearer didn't work, try exchanging via /login/verify
+		log('Direct Bearer failed, attempting token exchange via /login/verify...');
+		await logout();
+		const success = await loginWithToken(cachedToken.user, cachedToken.token);
+		if (success) {
+			log('Auto-login via /login/verify succeeded');
+			vscode.window.showInformationMessage(
+				`Plastic SCM: Signed in as ${cachedToken.user} (via Unity SSO)`,
+			);
+		}
+		return success;
+	} catch (err) {
+		logError('Auto-login with cached token failed', err);
+		return false;
+	}
+}
+
+/**
+ * Register stub commands for features planned in later phases.
+ * Prevents "command not found" errors when users click menu items.
+ */
+function registerStubCommands(context: vscode.ExtensionContext): void {
+	const stubCommands = [
+		COMMANDS.mergeTo,
+		COMMANDS.createCodeReview,
+		COMMANDS.openCodeReview,
+		COMMANDS.createLabel,
+		COMMANDS.update,
+		COMMANDS.showFileHistory,
+		COMMANDS.annotateFile,
+	];
+
+	for (const cmd of stubCommands) {
+		context.subscriptions.push(
+			vscode.commands.registerCommand(cmd, () => {
+				vscode.window.showInformationMessage(`"${cmd}" will be available in a future update.`);
+			}),
+		);
+	}
+}
+
+export function deactivate(): void {
+	disposables.dispose();
+	resetClient();
+	log('Plastic SCM Pro extension deactivated');
+}
