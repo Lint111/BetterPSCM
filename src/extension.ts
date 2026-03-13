@@ -205,6 +205,9 @@ async function setupProvider(context: vscode.ExtensionContext): Promise<void> {
 	// Create status bar
 	const statusBar = disposables.add(new PlasticStatusBar(provider));
 
+	// Set context key for when-clause visibility
+	vscode.commands.executeCommand('setContext', 'plasticScm.isActive', true);
+
 	// Always start polling — pollStatus handles auth errors gracefully
 	provider.start();
 

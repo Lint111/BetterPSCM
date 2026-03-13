@@ -124,6 +124,41 @@ describe('CliBackend', () => {
 				expect(result.changes[0].changeType).toBe(expected[i]);
 			}
 		});
+
+		it('handles compound type codes (e.g. "AD LD" for added then locally deleted)', async () => {
+			mockGetCmWorkspaceRoot.mockReturnValue('C:\\GitHub\\Divine Ambition\\DAPrototype');
+			mockExecCm.mockResolvedValue({
+				stdout: [
+					'AD LD C:\\GitHub\\Divine Ambition\\DAPrototype\\Assets\\Scripts\\Foo.meta False NO_MERGES',
+					'CH C:\\GitHub\\Divine Ambition\\DAPrototype\\Assets\\Scripts\\Bar.cs False NO_MERGES',
+				].join('\n'),
+				stderr: '',
+				exitCode: 0,
+			});
+
+			const result = await backend.getStatus(true);
+			expect(result.changes).toHaveLength(2);
+			// Compound "AD LD" should resolve to the second (more specific) type
+			expect(result.changes[0].changeType).toBe('locallyDeleted');
+			expect(result.changes[0].path).toBe('Assets/Scripts/Foo.meta');
+			// Regular single type still works
+			expect(result.changes[1].changeType).toBe('changed');
+			expect(result.changes[1].path).toBe('Assets/Scripts/Bar.cs');
+		});
+
+		it('handles compound type codes with spaces in path', async () => {
+			mockGetCmWorkspaceRoot.mockReturnValue('C:\\GitHub\\Divine Ambition\\DAPrototype');
+			mockExecCm.mockResolvedValue({
+				stdout: 'AD LD C:\\GitHub\\Divine Ambition\\DAPrototype\\Assets\\Default Chain\\File 1.meta False NO_MERGES\n',
+				stderr: '',
+				exitCode: 0,
+			});
+
+			const result = await backend.getStatus(true);
+			expect(result.changes).toHaveLength(1);
+			expect(result.changes[0].changeType).toBe('locallyDeleted');
+			expect(result.changes[0].path).toBe('Assets/Default Chain/File 1.meta');
+		});
 	});
 
 	describe('getCurrentBranch', () => {

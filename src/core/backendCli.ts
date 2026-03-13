@@ -35,10 +35,21 @@ export class CliBackend implements PlasticBackend {
 		const lines = result.stdout.split(/\r?\n/).filter(l => l.length > 0);
 		const changes: NormalizedChange[] = [];
 
+		// Log first 10 raw lines for debugging
+		for (let i = 0; i < Math.min(lines.length, 10); i++) {
+			log(`[cm status raw] line[${i}]: "${lines[i]}"`);
+		}
+		if (lines.length > 10) {
+			log(`[cm status raw] ... and ${lines.length - 10} more lines`);
+		}
+
 		for (const line of lines) {
 			if (line.startsWith('STATUS ')) continue;
 			const parsed = parseStatusLine(line);
-			if (!parsed) continue;
+			if (!parsed) {
+				log(`[cm status] UNPARSED: "${line}"`);
+				continue;
+			}
 			if (!showPrivate && parsed.changeType === 'private') continue;
 			changes.push(parsed);
 		}
@@ -161,7 +172,17 @@ function parseStatusLine(line: string): NormalizedChange | undefined {
 	const changeType = CM_CHANGE_TYPE_MAP[typeCode];
 	if (!changeType) return undefined;
 
-	const rest = line.substring(3);
+	let rest = line.substring(3);
+
+	// cm status can emit compound type codes (e.g. "AD LD <path>").
+	// If the remainder starts with another known type code, consume it
+	// and use the later (more specific) type as the effective change type.
+	let effectiveType = changeType;
+	const secondCode = rest.substring(0, 2).trim();
+	if (secondCode.length === 2 && CM_CHANGE_TYPE_MAP[secondCode] && rest.charAt(2) === ' ') {
+		effectiveType = CM_CHANGE_TYPE_MAP[secondCode];
+		rest = rest.substring(3);
+	}
 	const lastSpace = rest.lastIndexOf(' ');
 	if (lastSpace < 0) return undefined;
 
@@ -176,9 +197,11 @@ function parseStatusLine(line: string): NormalizedChange | undefined {
 	// cm status returns absolute paths — strip the workspace root to get relative paths
 	filePath = stripWorkspaceRoot(filePath);
 
+	log(`[parseStatusLine] code="${typeCode}${effectiveType !== changeType ? '+' + secondCode : ''}" isDirStr="${isDirStr}" path="${filePath}"`);
+
 	return {
 		path: filePath,
-		changeType,
+		changeType: effectiveType,
 		dataType: isDirStr === 'True' ? 'Directory' : 'File',
 	};
 }

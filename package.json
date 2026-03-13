@@ -201,12 +201,12 @@
           "group": "inline"
         },
         {
-          "command": "plasticScm.openChange",
+          "command": "plasticScm.openFile",
           "when": "scmProvider == plasticScm",
           "group": "inline"
         },
         {
-          "command": "plasticScm.openFile",
+          "command": "plasticScm.openChange",
           "when": "scmProvider == plasticScm",
           "group": "navigation"
         },
