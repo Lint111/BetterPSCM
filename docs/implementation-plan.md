@@ -209,13 +209,17 @@ vscode-plastic-scm/
 7. ✅ Backend-neutral types: `CodeReviewInfo`, `ReviewerInfo`, `ReviewCommentInfo`, `CreateReviewParams`, `CreateCommentParams`
 8. 🔲 Badge count for assigned reviews on the tree view icon (deferred)
 
-### Phase 5: Labels, Merges, History, Locks
+### Phase 5: Labels, Merges, History ✅ COMPLETE
 **Deliverable**: Feature parity with desktop client for daily operations.
 
-1. `src/core/labels.ts` + `src/views/labelsTreeProvider.ts` — Labels tree + CRUD
-2. `src/core/merges.ts` + `src/commands/merge.ts` — Merge-to command with QuickPick
-3. `src/core/history.ts` + `src/commands/history.ts` — File history timeline + annotate/blame
-4. `src/core/locks.ts` — Lock management UI
+1. ✅ Backend interface: 8 new methods (listLabels, createLabel, deleteLabel, getFileHistory, getBlame, checkMergeAllowed, executeMerge)
+2. ✅ `src/core/backendCli.ts` — CLI implementations via `cm find label`, `cm history`, `cm annotate`, `cm merge`
+3. ✅ `src/core/backendRest.ts` — REST implementations for labels (v1/v2), history, merge-to endpoints; blame throws NotSupportedError
+4. ✅ `src/commands/history.ts` — File history QuickPick + annotate/blame virtual document
+5. ✅ `src/commands/merge.ts` — Source/target branch pickers with conflict preview and merge execution
+6. ✅ `src/commands/label.ts` — Create label with changeset ID and comment
+7. ✅ Backend-neutral types: `LabelInfo`, `CreateLabelParams`, `FileHistoryEntry`, `BlameLine`, `MergeReport`, `MergeResult`
+8. 🔲 Lock management UI (deferred — low priority, rarely used in daily workflow)
 
 ### Phase 6: MCP Server
 **Deliverable**: AI agents can stage, commit, diff, branch, review via MCP.
