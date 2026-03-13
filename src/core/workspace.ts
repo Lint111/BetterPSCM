@@ -1,5 +1,5 @@
 import { getBackend } from './backend';
-import type { StatusResult, CheckinResult, BranchInfo, ChangesetInfo } from './types';
+import type { StatusResult, CheckinResult, BranchInfo, ChangesetInfo, ChangesetDiffItem } from './types';
 
 // Re-export for consumers that import from workspace.ts
 export type { StatusResult as WorkspaceStatusResult } from './types';
@@ -68,4 +68,11 @@ export async function switchBranch(branchName: string): Promise<void> {
  */
 export async function listChangesets(branchName?: string, limit?: number): Promise<ChangesetInfo[]> {
 	return getBackend().listChangesets(branchName, limit);
+}
+
+/**
+ * Get files changed in a specific changeset.
+ */
+export async function getChangesetDiff(changesetId: number, parentId: number): Promise<ChangesetDiffItem[]> {
+	return getBackend().getChangesetDiff(changesetId, parentId);
 }

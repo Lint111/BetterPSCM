@@ -12,7 +12,7 @@ import { registerGeneralCommands } from './commands/general';
 import { registerBranchCommands } from './commands/branch';
 import { registerAuthCommands } from './commands/auth';
 import { BranchesTreeProvider } from './views/branchesTreeProvider';
-import { HistoryGraphPanel } from './views/historyGraphPanel';
+import { HistoryGraphViewProvider } from './views/historyGraphPanel';
 import { COMMANDS, SETTINGS } from './constants';
 import { detectWorkspace, detectClientConfig, detectCachedToken, hasPlasticWorkspace } from './util/plasticDetector';
 import { detectCm, setCmWorkspaceRoot, isCmAvailable } from './core/cmCli';
@@ -203,10 +203,19 @@ async function setupProvider(context: vscode.ExtensionContext): Promise<void> {
 	// Register branch commands (replaces stubs)
 	registerBranchCommands(context, provider, branchTree);
 
-	// Register history graph command
+	// Register history graph sidebar view
+	const historyGraphProvider = new HistoryGraphViewProvider(context.extensionUri);
+	disposables.add(historyGraphProvider);
+	context.subscriptions.push(
+		vscode.window.registerWebviewViewProvider(
+			HistoryGraphViewProvider.viewId,
+			historyGraphProvider,
+		),
+	);
 	context.subscriptions.push(
 		vscode.commands.registerCommand(COMMANDS.showHistoryGraph, () => {
-			HistoryGraphPanel.show(context.extensionUri);
+			// Focus the sidebar view
+			vscode.commands.executeCommand('plasticScm.historyGraphView.focus');
 		}),
 	);
 

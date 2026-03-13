@@ -8,6 +8,7 @@ import type {
 	StatusChangeType,
 	BranchInfo,
 	ChangesetInfo,
+	ChangesetDiffItem,
 } from './types';
 
 const CM_CHANGE_TYPE_MAP: Record<string, StatusChangeType> = {
@@ -190,6 +191,63 @@ export class CliBackend implements PlasticBackend {
 		const lines = result.stdout.split(/\r?\n/).filter(l => l.length > 0);
 		return lines.map(parseChangesetLineNoParent).filter((c): c is ChangesetInfo => c !== undefined);
 	}
+
+	async getChangesetDiff(changesetId: number, parentId: number): Promise<ChangesetDiffItem[]> {
+		// cm diff cs:<parent> cs:<changeset> --machinereadable
+		const result = await execCm([
+			'diff', `cs:${parentId}`, `cs:${changesetId}`, '--machinereadable',
+		]);
+		if (result.exitCode !== 0) {
+			// Fallback: try cm find revision for the changeset
+			return this.getChangesetRevisions(changesetId);
+		}
+		return parseDiffOutput(result.stdout);
+	}
+
+	private async getChangesetRevisions(changesetId: number): Promise<ChangesetDiffItem[]> {
+		const result = await execCm([
+			'find', 'revision',
+			`where changeset=${changesetId}`,
+			'--format={path}#{type}',
+			'--nototal',
+		]);
+		if (result.exitCode !== 0) {
+			return [];
+		}
+		const lines = result.stdout.split(/\r?\n/).filter(l => l.length > 0);
+		return lines.map(parseRevisionLine).filter((r): r is ChangesetDiffItem => r !== undefined);
+	}
+}
+
+function parseDiffOutput(stdout: string): ChangesetDiffItem[] {
+	const lines = stdout.split(/\r?\n/).filter(l => l.length > 0);
+	const items: ChangesetDiffItem[] = [];
+	for (const line of lines) {
+		// cm diff --machinereadable outputs: <type> <path>
+		// Types: Added, Changed, Deleted, Moved
+		const match = line.match(/^(Added|Changed|Deleted|Moved)\s+(.+)$/i);
+		if (match) {
+			const typeStr = match[1].toLowerCase();
+			const type = typeStr === 'added' ? 'added'
+				: typeStr === 'deleted' ? 'deleted'
+				: typeStr === 'moved' ? 'moved'
+				: 'changed';
+			items.push({ path: match[2].trim(), type });
+		}
+	}
+	return items;
+}
+
+function parseRevisionLine(line: string): ChangesetDiffItem | undefined {
+	const parts = line.split('#');
+	if (parts.length < 2) return undefined;
+	const path = parts[0];
+	const typeStr = (parts[1] || '').toLowerCase();
+	const type = typeStr.includes('add') ? 'added'
+		: typeStr.includes('del') ? 'deleted'
+		: typeStr.includes('mov') ? 'moved'
+		: 'changed';
+	return { path, type };
 }
 
 function buildChangesetQuery(branchName?: string, limit?: number): string {

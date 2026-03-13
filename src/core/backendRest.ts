@@ -1,7 +1,7 @@
 import { getClient, getOrgName, getWorkspaceGuid, getRepoName } from '../api/client';
 import { log } from '../util/logger';
 import type { PlasticBackend } from './backend';
-import type { StatusResult, CheckinResult, NormalizedChange, BranchInfo, ChangesetInfo } from './types';
+import type { StatusResult, CheckinResult, NormalizedChange, BranchInfo, ChangesetInfo, ChangesetDiffItem } from './types';
 import type { CheckInRequest } from './types';
 import { normalizeChange } from './types';
 
@@ -215,6 +215,25 @@ export class RestBackend implements PlasticBackend {
 			date: c.date ?? '',
 			comment: c.comment ?? undefined,
 			parent: c.parentChangesetId ?? 0,
+		}));
+	}
+
+	async getChangesetDiff(changesetId: number, parentId: number): Promise<ChangesetDiffItem[]> {
+		const client = getClient();
+		const orgName = getOrgName();
+		const repoName = getRepoName();
+
+		const { data, error } = await client.GET(
+			'/api/v1/organizations/{orgName}/repos/{repoName}/changesets/{changesetId}/diff' as any,
+			{ params: { path: { orgName, repoName, changesetId } } },
+		);
+
+		if (error) return [];
+
+		const diffs = (data as any[]) ?? [];
+		return diffs.map((d: any) => ({
+			path: d.path ?? '',
+			type: (d.type ?? 'changed').toLowerCase() as 'added' | 'changed' | 'deleted' | 'moved',
 		}));
 	}
 }

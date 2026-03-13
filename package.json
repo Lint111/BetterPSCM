@@ -294,6 +294,12 @@
           "id": "plasticScm.branchesView",
           "name": "Branches",
           "when": "plasticScm.isActive"
+        },
+        {
+          "id": "plasticScm.historyGraphView",
+          "type": "webview",
+          "name": "History",
+          "when": "plasticScm.isActive"
         }
       ]
     },

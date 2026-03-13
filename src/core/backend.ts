@@ -1,5 +1,5 @@
 import { log } from '../util/logger';
-import type { StatusResult, CheckinResult, BranchInfo, ChangesetInfo } from './types';
+import type { StatusResult, CheckinResult, BranchInfo, ChangesetInfo, ChangesetDiffItem } from './types';
 
 /**
  * Contract for all workspace operations.
@@ -22,6 +22,7 @@ export interface PlasticBackend {
 
 	// Phase 3b — changeset history
 	listChangesets(branchName?: string, limit?: number): Promise<ChangesetInfo[]>;
+	getChangesetDiff(changesetId: number, parentId: number): Promise<ChangesetDiffItem[]>;
 }
 
 let activeBackend: PlasticBackend | undefined;

@@ -84,6 +84,11 @@ export interface ChangesetInfo {
 	guid?: string;
 }
 
+export interface ChangesetDiffItem {
+	path: string;
+	type: 'added' | 'changed' | 'deleted' | 'moved';
+}
+
 export class NotSupportedError extends Error {
 	constructor(operation: string, backend: string) {
 		super(`"${operation}" is not supported by the ${backend} backend`);
