@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { listBranches, getCurrentBranch } from '../core/workspace';
 import { logError } from '../util/logger';
+import { COMMANDS } from '../constants';
 import type { BranchInfo } from '../core/types';
 
 export class BranchTreeItem {
@@ -30,6 +31,13 @@ export class BranchesTreeProvider implements vscode.TreeDataProvider<BranchTreeI
 		item.iconPath = element.branch.isCurrent
 			? new vscode.ThemeIcon('check')
 			: new vscode.ThemeIcon('git-branch');
+		// Clicking a non-current branch triggers switch
+		if (!element.branch.isCurrent) {
+			item.command = {
+				command: COMMANDS.switchBranch,
+				title: 'Switch to Branch',
+			};
+		}
 		return item;
 	}
 

@@ -276,19 +276,8 @@
       "plasticScm": [
         {
           "id": "plasticScm.branchesView",
-          "name": "Branches"
-        },
-        {
-          "id": "plasticScm.changesetsView",
-          "name": "Changesets"
-        },
-        {
-          "id": "plasticScm.codeReviewsView",
-          "name": "Code Reviews"
-        },
-        {
-          "id": "plasticScm.labelsView",
-          "name": "Labels"
+          "name": "Branches",
+          "when": "plasticScm.isActive"
         }
       ]
     },
