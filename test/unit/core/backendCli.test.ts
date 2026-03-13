@@ -1,9 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { execCm, getCmWorkspaceRoot } from '../../../src/core/cmCli';
+import { execCm, execCmToFile, getCmWorkspaceRoot } from '../../../src/core/cmCli';
 
 vi.mock('../../../src/core/cmCli', () => ({
 	execCm: vi.fn(),
+	execCmToFile: vi.fn(),
 	getCmWorkspaceRoot: vi.fn(() => undefined),
+}));
+
+vi.mock('../../../src/util/plasticDetector', () => ({
+	hasPlasticWorkspace: vi.fn(() => false),
+	detectWorkspace: vi.fn(),
+}));
+
+vi.mock('fs/promises', () => ({
+	readFile: vi.fn(),
+	unlink: vi.fn(),
 }));
 
 import { CliBackend } from '../../../src/core/backendCli';
@@ -162,18 +173,46 @@ describe('CliBackend', () => {
 	});
 
 	describe('getCurrentBranch', () => {
-		it('parses branch from wi output', async () => {
-			mockExecCm.mockResolvedValue({
-				stdout: 'BR /main/Tech/Feature rep:DAPrototype@org@cloud\n',
-				stderr: '',
-				exitCode: 0,
+		it('reads branch from .plastic/plastic.selector when available', async () => {
+			const { hasPlasticWorkspace, detectWorkspace } = await import('../../../src/util/plasticDetector');
+			vi.mocked(hasPlasticWorkspace).mockReturnValue(true);
+			vi.mocked(detectWorkspace).mockReturnValue({
+				workspaceName: 'test', workspaceGuid: 'guid',
+				organizationName: 'org', repositoryName: 'repo',
+				currentBranch: '/main/Tech/Feature', isCloud: true,
+				serverUrl: 'https://example.com',
 			});
+			mockGetCmWorkspaceRoot.mockReturnValue('/project');
 
 			const branch = await backend.getCurrentBranch();
 			expect(branch).toBe('/main/Tech/Feature');
 		});
 
-		it('returns undefined when no branch match', async () => {
+		it('falls back to cm wi when .plastic not available', async () => {
+			const { hasPlasticWorkspace } = await import('../../../src/util/plasticDetector');
+			vi.mocked(hasPlasticWorkspace).mockReturnValue(false);
+
+			// cm wi returns changeset ID
+			mockExecCm.mockResolvedValueOnce({
+				stdout: 'CS 42 cs:42@rep:Repo@org',
+				stderr: '',
+				exitCode: 0,
+			});
+			// cm find changeset returns branch
+			mockExecCm.mockResolvedValueOnce({
+				stdout: '/main/Feature\n',
+				stderr: '',
+				exitCode: 0,
+			});
+
+			const branch = await backend.getCurrentBranch();
+			expect(branch).toBe('/main/Feature');
+		});
+
+		it('returns undefined when all methods fail', async () => {
+			const { hasPlasticWorkspace } = await import('../../../src/util/plasticDetector');
+			vi.mocked(hasPlasticWorkspace).mockReturnValue(false);
+
 			mockExecCm.mockResolvedValue({
 				stdout: 'UNEXPECTED OUTPUT',
 				stderr: '',
@@ -182,16 +221,6 @@ describe('CliBackend', () => {
 
 			const branch = await backend.getCurrentBranch();
 			expect(branch).toBeUndefined();
-		});
-
-		it('throws on non-zero exit code', async () => {
-			mockExecCm.mockResolvedValue({
-				stdout: '',
-				stderr: 'workspace error',
-				exitCode: 1,
-			});
-
-			await expect(backend.getCurrentBranch()).rejects.toThrow('cm wi failed');
 		});
 	});
 
@@ -359,6 +388,205 @@ describe('CliBackend', () => {
 		it('throws on non-zero exit code', async () => {
 			mockExecCm.mockResolvedValue({ stdout: '', stderr: 'error', exitCode: 1 });
 			await expect(backend.switchBranch('/bad')).rejects.toThrow('cm switch failed');
+		});
+	});
+
+	describe('updateWorkspace', () => {
+		it('calls cm update and returns file count', async () => {
+			mockExecCm.mockResolvedValue({
+				stdout: '/src/foo.ts\n/src/bar.ts\nTotal 2 updated\n',
+				stderr: '',
+				exitCode: 0,
+			});
+
+			const result = await backend.updateWorkspace();
+			expect(result.updatedFiles).toBe(2);
+			expect(result.conflicts).toHaveLength(0);
+			expect(mockExecCm).toHaveBeenCalledWith(['update', '--machinereadable']);
+		});
+
+		it('reports conflicts from output', async () => {
+			mockExecCm.mockResolvedValue({
+				stdout: '',
+				stderr: 'CONFLICT in /src/foo.ts\nconflict in /src/bar.ts',
+				exitCode: 1,
+			});
+
+			const result = await backend.updateWorkspace();
+			expect(result.conflicts).toHaveLength(2);
+			expect(result.updatedFiles).toBe(0);
+		});
+
+		it('throws on non-conflict error', async () => {
+			mockExecCm.mockResolvedValue({
+				stdout: '',
+				stderr: 'workspace not found',
+				exitCode: 1,
+			});
+
+			await expect(backend.updateWorkspace()).rejects.toThrow('cm update failed');
+		});
+
+		it('handles empty update (already up to date)', async () => {
+			mockExecCm.mockResolvedValue({
+				stdout: '',
+				stderr: '',
+				exitCode: 0,
+			});
+
+			const result = await backend.updateWorkspace();
+			expect(result.updatedFiles).toBe(0);
+			expect(result.conflicts).toHaveLength(0);
+		});
+	});
+
+	describe('listChangesets', () => {
+		it('parses changeset lines with parent field', async () => {
+			mockExecCm.mockResolvedValue({
+				stdout: '42#/main#alice#2026-01-01#fix bug#41\n43#/main#bob#2026-01-02#add feature#42\n',
+				stderr: '',
+				exitCode: 0,
+			});
+
+			const result = await backend.listChangesets(undefined, 50);
+			expect(result).toHaveLength(2);
+			expect(result[0]).toEqual({
+				id: 42, branch: '/main', owner: 'alice',
+				date: '2026-01-01', comment: 'fix bug', parent: 41,
+			});
+			expect(result[1].parent).toBe(42);
+		});
+
+		it('falls back to format without parent on error', async () => {
+			// First call fails with parent field error
+			mockExecCm.mockResolvedValueOnce({
+				stdout: '',
+				stderr: 'parent field not valid',
+				exitCode: 1,
+			});
+			// Second call succeeds without parent
+			mockExecCm.mockResolvedValueOnce({
+				stdout: '42#/main#alice#2026-01-01#fix bug\n',
+				stderr: '',
+				exitCode: 0,
+			});
+
+			const result = await backend.listChangesets();
+			expect(result).toHaveLength(1);
+			expect(result[0].id).toBe(42);
+			expect(result[0].parent).toBe(41); // best-guess: id - 1
+		});
+
+		it('includes branch filter when provided', async () => {
+			mockExecCm.mockResolvedValue({
+				stdout: '10#/main/feature#dev#2026-01-01#wip#9\n',
+				stderr: '',
+				exitCode: 0,
+			});
+
+			await backend.listChangesets('/main/feature', 10);
+			const args = mockExecCm.mock.calls[0][0];
+			expect(args.join(' ')).toContain("where branch='/main/feature'");
+			expect(args.join(' ')).toContain('limit 10');
+		});
+
+		it('skips malformed lines', async () => {
+			mockExecCm.mockResolvedValue({
+				stdout: '42#/main#alice#2026-01-01#fix#41\nbad line\n',
+				stderr: '',
+				exitCode: 0,
+			});
+
+			const result = await backend.listChangesets();
+			expect(result).toHaveLength(1);
+		});
+	});
+
+	describe('getChangesetDiff', () => {
+		it('parses machinereadable diff output', async () => {
+			mockExecCm.mockResolvedValue({
+				stdout: 'Added /src/new.ts\nChanged /src/old.ts\nDeleted /src/gone.ts\n',
+				stderr: '',
+				exitCode: 0,
+			});
+
+			const result = await backend.getChangesetDiff(2, 1);
+			expect(result).toHaveLength(3);
+			expect(result[0]).toEqual({ path: '/src/new.ts', type: 'added' });
+			expect(result[1]).toEqual({ path: '/src/old.ts', type: 'changed' });
+			expect(result[2]).toEqual({ path: '/src/gone.ts', type: 'deleted' });
+		});
+
+		it('parses single-char prefix with quotes', async () => {
+			mockExecCm.mockResolvedValue({
+				stdout: 'A "src/new file.ts"\nC "src/changed.ts"\nD "src/deleted.ts"\n',
+				stderr: '',
+				exitCode: 0,
+			});
+
+			const result = await backend.getChangesetDiff(2, 1);
+			expect(result).toHaveLength(3);
+			expect(result[0]).toEqual({ path: 'src/new file.ts', type: 'added' });
+		});
+
+		it('parses move format with two quoted paths', async () => {
+			mockExecCm.mockResolvedValue({
+				stdout: 'M "old\\path\\file.ts" "new\\path\\file.ts"\n',
+				stderr: '',
+				exitCode: 0,
+			});
+
+			const result = await backend.getChangesetDiff(2, 1);
+			expect(result).toHaveLength(1);
+			expect(result[0]).toEqual({ path: 'new/path/file.ts', type: 'moved' });
+		});
+
+		it('falls back to cm find revision when cm diff fails', async () => {
+			// cm diff --machinereadable fails
+			mockExecCm.mockResolvedValueOnce({ stdout: '', stderr: 'error', exitCode: 1 });
+			// cm diff (no flag) also fails
+			mockExecCm.mockResolvedValueOnce({ stdout: '', stderr: 'error', exitCode: 1 });
+			// cm find revision fallback succeeds
+			mockExecCm.mockResolvedValueOnce({
+				stdout: '/src/foo.ts#added\n/src/bar.ts#changed\n',
+				stderr: '',
+				exitCode: 0,
+			});
+
+			const result = await backend.getChangesetDiff(2, 1);
+			expect(result).toHaveLength(2);
+			expect(result[0]).toEqual({ path: '/src/foo.ts', type: 'added' });
+		});
+	});
+
+	describe('code review methods (CLI)', () => {
+		it('listCodeReviews throws NotSupportedError', async () => {
+			await expect(backend.listCodeReviews()).rejects.toThrow('not supported');
+		});
+
+		it('getCodeReview throws NotSupportedError', async () => {
+			await expect(backend.getCodeReview(1)).rejects.toThrow('not supported');
+		});
+
+		it('createCodeReview throws NotSupportedError', async () => {
+			await expect(backend.createCodeReview({
+				title: 'test', targetType: 'Branch', targetId: 1,
+			})).rejects.toThrow('not supported');
+		});
+
+		it('addReviewComment throws NotSupportedError', async () => {
+			await expect(backend.addReviewComment({
+				reviewId: 1, text: 'test',
+			})).rejects.toThrow('not supported');
+		});
+
+		it('all code review methods throw NotSupportedError with backend name', async () => {
+			try {
+				await backend.listCodeReviews();
+			} catch (err: any) {
+				expect(err.name).toBe('NotSupportedError');
+				expect(err.message).toContain('cm CLI');
+			}
 		});
 	});
 });

@@ -26,7 +26,6 @@ const mockGetCurrentBranch = vi.mocked(getCurrentBranch);
 describe('branch commands', () => {
 	let registeredHandlers: Record<string, Function>;
 	let mockProvider: any;
-	let mockBranchTree: any;
 
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -41,14 +40,9 @@ describe('branch commands', () => {
 			refresh: vi.fn().mockResolvedValue(undefined),
 		};
 
-		mockBranchTree = {
-			refresh: vi.fn(),
-		};
-
 		registerBranchCommands(
 			{ subscriptions: { push: vi.fn() } } as any,
 			mockProvider as any,
-			mockBranchTree as any,
 		);
 	});
 
@@ -71,7 +65,6 @@ describe('branch commands', () => {
 
 			expect(mockSwitchBranch).toHaveBeenCalledWith('/main/feature');
 			expect(mockProvider.refresh).toHaveBeenCalled();
-			expect(mockBranchTree.refresh).toHaveBeenCalled();
 		});
 
 		it('filters current branch from QuickPick', async () => {
@@ -109,7 +102,6 @@ describe('branch commands', () => {
 			await registeredHandlers[COMMANDS.createBranch]();
 
 			expect(mockCreateBranch).toHaveBeenCalledWith('/main/newBranch');
-			expect(mockBranchTree.refresh).toHaveBeenCalled();
 		});
 
 		it('does nothing when user cancels input', async () => {
@@ -122,31 +114,44 @@ describe('branch commands', () => {
 
 	describe('deleteBranch', () => {
 		it('deletes branch after confirmation', async () => {
+			mockListBranches.mockResolvedValue([
+				{ id: 1, name: '/main', owner: 'user', date: '', isMain: true },
+				{ id: 5, name: '/main/old', owner: 'dev', date: '', isMain: false },
+			]);
+			mockGetCurrentBranch.mockResolvedValue('/main');
+			window.showQuickPick.mockResolvedValue({ label: '/main/old' });
 			window.showWarningMessage.mockResolvedValue('Delete');
 
-			await registeredHandlers[COMMANDS.deleteBranch]({
-				branch: { id: 5, name: '/main/old', isCurrent: false },
-			});
+			await registeredHandlers[COMMANDS.deleteBranch]();
 
 			expect(mockDeleteBranch).toHaveBeenCalledWith(5);
-			expect(mockBranchTree.refresh).toHaveBeenCalled();
 		});
 
-		it('does not delete current branch', async () => {
-			await registeredHandlers[COMMANDS.deleteBranch]({
-				branch: { id: 1, name: '/main', isCurrent: true },
-			});
+		it('does not show current branch in picker', async () => {
+			mockListBranches.mockResolvedValue([
+				{ id: 1, name: '/main', owner: 'user', date: '', isMain: true },
+				{ id: 5, name: '/main/old', owner: 'dev', date: '', isMain: false },
+			]);
+			mockGetCurrentBranch.mockResolvedValue('/main');
+			window.showQuickPick.mockResolvedValue(undefined);
 
+			await registeredHandlers[COMMANDS.deleteBranch]();
+
+			const quickPickItems = window.showQuickPick.mock.calls[0][0];
+			expect(quickPickItems).toHaveLength(1);
+			expect(quickPickItems[0].label).toBe('/main/old');
 			expect(mockDeleteBranch).not.toHaveBeenCalled();
-			expect(window.showWarningMessage).toHaveBeenCalledWith(expect.stringContaining('Cannot delete'));
 		});
 
-		it('does nothing when user cancels', async () => {
+		it('does nothing when user cancels confirmation', async () => {
+			mockListBranches.mockResolvedValue([
+				{ id: 5, name: '/main/old', owner: 'dev', date: '', isMain: false },
+			]);
+			mockGetCurrentBranch.mockResolvedValue('/main');
+			window.showQuickPick.mockResolvedValue({ label: '/main/old' });
 			window.showWarningMessage.mockResolvedValue(undefined);
 
-			await registeredHandlers[COMMANDS.deleteBranch]({
-				branch: { id: 5, name: '/main/old', isCurrent: false },
-			});
+			await registeredHandlers[COMMANDS.deleteBranch]();
 
 			expect(mockDeleteBranch).not.toHaveBeenCalled();
 		});

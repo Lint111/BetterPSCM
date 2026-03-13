@@ -98,11 +98,12 @@ describe('PlasticScmProvider', () => {
 			const listener = vi.fn();
 			provider.onDidChangeBranch(listener);
 
-			await provider.refresh(); // first poll — sets baseline, no fire
-			expect(listener).not.toHaveBeenCalled();
+			await provider.refresh(); // first poll — sets initial branch, fires
+			expect(listener).toHaveBeenCalledWith('/main');
 
+			listener.mockClear();
 			mockGetCurrentBranch.mockResolvedValue('/main/feature');
-			await provider.refresh(); // second poll — branch changed, fire
+			await provider.refresh(); // second poll — branch changed, fires again
 			expect(listener).toHaveBeenCalledWith('/main/feature');
 		});
 
@@ -110,11 +111,12 @@ describe('PlasticScmProvider', () => {
 			mockFetchStatus.mockResolvedValue({ changes: [] });
 			mockGetCurrentBranch.mockResolvedValue('/main');
 
+			await provider.refresh(); // first poll sets baseline
+
 			const listener = vi.fn();
 			provider.onDidChangeBranch(listener);
 
-			await provider.refresh();
-			await provider.refresh();
+			await provider.refresh(); // same branch — no fire
 			expect(listener).not.toHaveBeenCalled();
 		});
 

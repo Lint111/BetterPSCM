@@ -5,7 +5,12 @@ vi.mock('../../../src/core/backend', () => ({
 }));
 
 import { getBackend } from '../../../src/core/backend';
-import { fetchWorkspaceStatus, getCurrentBranch, checkinFiles, fetchFileContent, listBranches, switchBranch } from '../../../src/core/workspace';
+import {
+	fetchWorkspaceStatus, getCurrentBranch, checkinFiles, fetchFileContent,
+	listBranches, switchBranch, updateWorkspace,
+	listCodeReviews, getCodeReview, createCodeReview, addReviewComment,
+	getReviewComments, addReviewers, removeReviewer, updateReviewerStatus,
+} from '../../../src/core/workspace';
 
 const mockGetBackend = vi.mocked(getBackend);
 
@@ -20,6 +25,20 @@ describe('workspace facade', () => {
 		createBranch: vi.fn(),
 		deleteBranch: vi.fn(),
 		switchBranch: vi.fn(),
+		listChangesets: vi.fn(),
+		getChangesetDiff: vi.fn(),
+		updateWorkspace: vi.fn(),
+		listCodeReviews: vi.fn(),
+		getCodeReview: vi.fn(),
+		createCodeReview: vi.fn(),
+		deleteCodeReview: vi.fn(),
+		updateCodeReviewStatus: vi.fn(),
+		getReviewComments: vi.fn(),
+		addReviewComment: vi.fn(),
+		getReviewers: vi.fn(),
+		addReviewers: vi.fn(),
+		removeReviewer: vi.fn(),
+		updateReviewerStatus: vi.fn(),
 	};
 
 	beforeEach(() => {
@@ -74,5 +93,78 @@ describe('workspace facade', () => {
 
 		await switchBranch('/main/feature');
 		expect(fakeBackend.switchBranch).toHaveBeenCalledWith('/main/feature');
+	});
+
+	it('updateWorkspace delegates', async () => {
+		const expected = { updatedFiles: 5, conflicts: [] };
+		fakeBackend.updateWorkspace.mockResolvedValue(expected);
+
+		const result = await updateWorkspace();
+		expect(result).toBe(expected);
+	});
+
+	it('listCodeReviews delegates with filter', async () => {
+		const expected = [{ id: 1, title: 'Review' }];
+		fakeBackend.listCodeReviews.mockResolvedValue(expected);
+
+		const result = await listCodeReviews('pending');
+		expect(result).toBe(expected);
+		expect(fakeBackend.listCodeReviews).toHaveBeenCalledWith('pending');
+	});
+
+	it('getCodeReview delegates', async () => {
+		const expected = { id: 1, title: 'Review' };
+		fakeBackend.getCodeReview.mockResolvedValue(expected);
+
+		const result = await getCodeReview(1);
+		expect(result).toBe(expected);
+	});
+
+	it('createCodeReview delegates', async () => {
+		const params = { title: 'Test', targetType: 'Branch' as const, targetId: 1 };
+		const expected = { id: 1, ...params };
+		fakeBackend.createCodeReview.mockResolvedValue(expected);
+
+		const result = await createCodeReview(params);
+		expect(result).toBe(expected);
+	});
+
+	it('addReviewComment delegates', async () => {
+		const params = { reviewId: 1, text: 'LGTM' };
+		const expected = { id: 1, text: 'LGTM' };
+		fakeBackend.addReviewComment.mockResolvedValue(expected);
+
+		const result = await addReviewComment(params);
+		expect(result).toBe(expected);
+	});
+
+	it('getReviewComments delegates', async () => {
+		const expected = [{ id: 1, text: 'nice' }];
+		fakeBackend.getReviewComments.mockResolvedValue(expected);
+
+		const result = await getReviewComments(42);
+		expect(result).toBe(expected);
+		expect(fakeBackend.getReviewComments).toHaveBeenCalledWith(42);
+	});
+
+	it('addReviewers delegates', async () => {
+		fakeBackend.addReviewers.mockResolvedValue(undefined);
+
+		await addReviewers(1, ['alice', 'bob']);
+		expect(fakeBackend.addReviewers).toHaveBeenCalledWith(1, ['alice', 'bob']);
+	});
+
+	it('removeReviewer delegates', async () => {
+		fakeBackend.removeReviewer.mockResolvedValue(undefined);
+
+		await removeReviewer(1, 'alice');
+		expect(fakeBackend.removeReviewer).toHaveBeenCalledWith(1, 'alice');
+	});
+
+	it('updateReviewerStatus delegates', async () => {
+		fakeBackend.updateReviewerStatus.mockResolvedValue(undefined);
+
+		await updateReviewerStatus(1, 'alice', 'Reviewed');
+		expect(fakeBackend.updateReviewerStatus).toHaveBeenCalledWith(1, 'alice', 'Reviewed');
 	});
 });

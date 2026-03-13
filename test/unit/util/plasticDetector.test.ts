@@ -20,8 +20,15 @@ describe('hasPlasticWorkspace', () => {
 });
 
 describe('detectWorkspace', () => {
+	const origLocalAppData = process.env.LOCALAPPDATA;
+
 	beforeEach(() => {
 		vi.clearAllMocks();
+		process.env.LOCALAPPDATA = 'C:\\Users\\test\\AppData\\Local';
+	});
+
+	afterAll(() => {
+		process.env.LOCALAPPDATA = origLocalAppData;
 	});
 
 	it('returns undefined when .plastic folder missing', () => {
