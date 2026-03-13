@@ -242,11 +242,16 @@ export class HistoryGraphViewProvider implements vscode.WebviewViewProvider, vsc
 	 * (e.g., /main/Tech/VFX → parent branch is /main/Tech) and connecting to the
 	 * nearest changeset on that parent branch.
 	 */
-	private computeGraph(changesets: ChangesetInfo[], currentBranch?: string): GraphNode[] {
+	private computeGraph(changesets: ChangesetInfo[], currentBranchRaw?: string): GraphNode[] {
 		if (changesets.length === 0) return [];
 
 		// Sort by ID descending (newest first)
-		const sorted = [...changesets].sort((a, b) => b.id - a.id);
+		// Normalize branch names to prevent duplicates from whitespace/formatting
+		const sorted = [...changesets].map(cs => ({
+			...cs,
+			branch: cs.branch.trim(),
+		})).sort((a, b) => b.id - a.id);
+		const currentBranch = currentBranchRaw?.trim();
 
 		// Build lookup
 		const idToIndex = new Map<number, number>();
@@ -262,19 +267,80 @@ export class HistoryGraphViewProvider implements vscode.WebviewViewProvider, vsc
 			branchChangesets.get(br)!.push(i);
 		}
 
-		// --- Lane assignment ---
-		const branchLanes = new Map<string, number>();
-		let nextLane = 0;
-
-		// Current branch always gets lane 0
-		if (currentBranch) {
-			branchLanes.set(currentBranch, nextLane++);
+		// --- Lane assignment via interval coloring ---
+		// Each branch occupies a row range [firstRow, lastRow]. No two branches
+		// with overlapping ranges may share the same lane.
+		// The range is extended to cover cross-branch connections (branch-off lines
+		// travel vertically on the branch's lane from the commit to the parent row).
+		const branchMinRow = new Map<string, number>();
+		const branchMaxRow = new Map<string, number>();
+		for (let i = 0; i < sorted.length; i++) {
+			const br = sorted[i].branch;
+			if (!branchMinRow.has(br)) branchMinRow.set(br, i);
+			branchMaxRow.set(br, i);
 		}
 
-		// First pass: assign lanes in order of first appearance (newest commits first)
+		// Extend ranges: if a commit's parent is on a different branch,
+		// the connection line drops vertically on the child branch's lane
+		// from the commit row to the horizontal turn row. Extend the child
+		// branch interval to cover the parent's row.
+		for (let i = 0; i < sorted.length; i++) {
+			const cs = sorted[i];
+			const parentIdx = idToIndex.get(cs.parent);
+			if (parentIdx !== undefined) {
+				const parent = sorted[parentIdx];
+				if (parent.branch !== cs.branch) {
+					// Branch-off: extend child branch range to cover the parent row
+					const curMax = branchMaxRow.get(cs.branch) ?? i;
+					if (parentIdx > curMax) branchMaxRow.set(cs.branch, parentIdx);
+					const curMin = branchMinRow.get(cs.branch) ?? i;
+					if (parentIdx < curMin) branchMinRow.set(cs.branch, parentIdx);
+				}
+			}
+		}
+
+		const branchLanes = new Map<string, number>();
+		// Track which rows each lane is occupied: lane → list of [start, end] intervals
+		const laneIntervals: [number, number][][] = [];
+
+		const assignLane = (branch: string, requestedLane?: number): number => {
+			const start = branchMinRow.get(branch) ?? 0;
+			const end = branchMaxRow.get(branch) ?? start;
+
+			const fits = (lane: number): boolean => {
+				const intervals = laneIntervals[lane];
+				if (!intervals) return true;
+				for (const [s, e] of intervals) {
+					if (start <= e && end >= s) return false; // overlap
+				}
+				return true;
+			};
+
+			if (requestedLane !== undefined && fits(requestedLane)) {
+				if (!laneIntervals[requestedLane]) laneIntervals[requestedLane] = [];
+				laneIntervals[requestedLane].push([start, end]);
+				branchLanes.set(branch, requestedLane);
+				return requestedLane;
+			}
+
+			// Find first available lane
+			let lane = 0;
+			while (!fits(lane)) lane++;
+			if (!laneIntervals[lane]) laneIntervals[lane] = [];
+			laneIntervals[lane].push([start, end]);
+			branchLanes.set(branch, lane);
+			return lane;
+		};
+
+		// Current branch always gets lane 0
+		if (currentBranch && branchMinRow.has(currentBranch)) {
+			assignLane(currentBranch, 0);
+		}
+
+		// Assign remaining branches in order of first appearance
 		for (const cs of sorted) {
 			if (!branchLanes.has(cs.branch)) {
-				branchLanes.set(cs.branch, nextLane++);
+				assignLane(cs.branch);
 			}
 		}
 
@@ -284,11 +350,15 @@ export class HistoryGraphViewProvider implements vscode.WebviewViewProvider, vsc
 		// Track which branches have their origin connected
 		const branchOriginConnected = new Set<string>();
 
+		// Track previous commit index per branch for same-branch continuation
+		const branchPrevIdx = new Map<string, number>();
+
 		for (let i = 0; i < sorted.length; i++) {
 			const cs = sorted[i];
 			const lane = branchLanes.get(cs.branch)!;
 			const color = LANE_COLORS[lane % LANE_COLORS.length];
 			const connections: GraphConnection[] = [];
+			const prevOnBranch = branchPrevIdx.get(cs.branch);
 
 			// Connection to parent changeset
 			const parentIdx = idToIndex.get(cs.parent);
@@ -305,7 +375,7 @@ export class HistoryGraphViewProvider implements vscode.WebviewViewProvider, vsc
 						type: 'parent',
 					});
 				} else {
-					// Different branch → this is a branch-off point
+					// Different branch → this is a branch-off/merge point
 					connections.push({
 						toRow: parentIdx,
 						toLane: parentLane,
@@ -316,6 +386,24 @@ export class HistoryGraphViewProvider implements vscode.WebviewViewProvider, vsc
 				}
 			}
 
+			// Always connect to previous commit on same branch if not already
+			// connected via same-branch parent. This prevents visual gaps when
+			// a commit's parent is on another branch (merge) or not loaded.
+			if (prevOnBranch !== undefined) {
+				const alreadyConnected = connections.some(
+					c => c.toRow === prevOnBranch && c.toLane === lane && c.type === 'parent',
+				);
+				if (!alreadyConnected) {
+					connections.push({
+						toRow: prevOnBranch,
+						toLane: lane,
+						color,
+						type: 'parent',
+					});
+				}
+			}
+
+			branchPrevIdx.set(cs.branch, i);
 			nodes.push({ changeset: cs, lane, color, connections });
 		}
 
@@ -432,7 +520,7 @@ export class HistoryGraphViewProvider implements vscode.WebviewViewProvider, vsc
 			const y1 = firstRow * rowHeight + rowHeight / 2 + 4;
 			const y2 = lastRow * rowHeight + rowHeight / 2 + 4;
 			svgLines.push(
-				`<line x1="${x}" y1="${y1}" x2="${x}" y2="${y2}" stroke="${color}" stroke-width="2" stroke-opacity="0.35"/>`,
+				`<line x1="${x}" y1="${y1}" x2="${x}" y2="${y2}" stroke="${color}" stroke-width="2" stroke-opacity="0.55"/>`,
 			);
 		}
 
@@ -452,11 +540,18 @@ export class HistoryGraphViewProvider implements vscode.WebviewViewProvider, vsc
 						`<line x1="${cx}" y1="${cy}" x2="${tx}" y2="${ty}" stroke="${conn.color}" stroke-width="2" stroke-opacity="0.7"/>`,
 					);
 				} else {
-					// Branch-off or merge: curved bezier
-					const midY = cy + (ty - cy) * 0.4;
-					svgLines.push(
-						`<path d="M${cx},${cy} C${cx},${midY} ${tx},${midY} ${tx},${ty}" fill="none" stroke="${conn.color}" stroke-width="2" stroke-opacity="0.7"/>`,
-					);
+					// Branch/merge: horizontal from source to target lane, then vertical down
+					if (tx !== cx) {
+						const r = Math.min(6, Math.abs(tx - cx) / 2);
+						const dir = tx > cx ? 1 : -1;
+						svgLines.push(
+							`<path d="M${cx},${cy} L${tx - dir * r},${cy} Q${tx},${cy} ${tx},${cy + r} L${tx},${ty}" fill="none" stroke="${conn.color}" stroke-width="2" stroke-opacity="0.7"/>`,
+						);
+					} else {
+						svgLines.push(
+							`<line x1="${cx}" y1="${cy}" x2="${tx}" y2="${ty}" stroke="${conn.color}" stroke-width="2" stroke-opacity="0.7"/>`,
+						);
+					}
 				}
 			}
 
