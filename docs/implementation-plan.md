@@ -183,12 +183,19 @@ vscode-plastic-scm/
 - ✅ Missing activity bar icon (`media/plastic-scm.svg`) — entire branch panel was invisible
 - ✅ Removed unimplemented stub views (changesets, code reviews, labels) that showed as empty panels
 
-### Phase 3b: Changeset History Tree
-**Deliverable**: Changeset history in activity bar panel.
+### Phase 3b: Changeset History Graph ✅ COMPLETE
+**Deliverable**: Interactive history graph webview with changeset visualization and click-to-diff.
 
-1. `src/core/changesets.ts` — list changesets filtered by branch
-2. `src/views/changesetsTreeProvider.ts` — expandable tree showing diff files per changeset
-3. `src/commands/update.ts` — workspace update with conflict handling via `POST /workspaces/{guid}/update`
+1. ✅ `src/views/historyGraphPanel.ts` — SVG-based history graph with branch lines, changeset dots, commit info rows
+2. ✅ `src/core/backendCli.ts` — `getChangesets()` via `cm find changeset`, `getChangesetDiff()` via `cm diff`, `getFileContent()` via `cm find revision` → `cm cat revid:N`
+3. ✅ `src/util/cache.ts` — Generic `LruCache<K,V>` (bounded, immutable data) and `TtlCache<K,V>` (time-expiring)
+4. ✅ `src/views/webviewStyles.ts` — Centralized CSS design tokens and shared utility classes
+5. ✅ `src/core/cmCli.ts` — `execCmToFile()` for streaming large files (.unity, .prefab, etc.) via `spawn` + pipe
+6. ✅ Cross-hover between graph dots and commit rows, selection highlighting
+7. ✅ `diffEditor.hideUnchangedRegions.enabled` for collapsed unchanged sections in diff views
+8. ✅ Move path parsing for `M "old" "new"` format from `cm diff`
+9. ✅ Parent revision resolution fallback (`changeset<=N ... order by desc limit 1`)
+10. 🔲 `src/commands/update.ts` — workspace update with conflict handling via `POST /workspaces/{guid}/update`
 
 ### Phase 4: Code Reviews
 **Deliverable**: Full review lifecycle in VS Code.
