@@ -23,7 +23,6 @@ export const COMMANDS = {
 	switchBranch: 'plasticScm.switchBranch',
 	createBranch: 'plasticScm.createBranch',
 	deleteBranch: 'plasticScm.deleteBranch',
-	refreshBranches: 'plasticScm.refreshBranches',
 	mergeTo: 'plasticScm.mergeTo',
 	createCodeReview: 'plasticScm.createCodeReview',
 	openCodeReview: 'plasticScm.openCodeReview',

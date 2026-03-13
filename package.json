@@ -138,12 +138,6 @@
         "category": "Plastic SCM"
       },
       {
-        "command": "plasticScm.refreshBranches",
-        "title": "Refresh Branches",
-        "icon": "$(refresh)",
-        "category": "Plastic SCM"
-      },
-      {
         "command": "plasticScm.showHistoryGraph",
         "title": "Show History Graph",
         "icon": "$(git-commit)",
@@ -232,35 +226,8 @@
           "group": "2_history"
         }
       ],
-      "view/item/context": [
-        {
-          "command": "plasticScm.switchBranch",
-          "when": "view == plasticScm.branchesView && viewItem =~ /^branch/",
-          "group": "navigation"
-        },
-        {
-          "command": "plasticScm.deleteBranch",
-          "when": "view == plasticScm.branchesView && viewItem == branch",
-          "group": "2_modification"
-        }
-      ],
-      "view/title": [
-        {
-          "command": "plasticScm.createBranch",
-          "when": "view == plasticScm.branchesView",
-          "group": "navigation"
-        },
-        {
-          "command": "plasticScm.refreshBranches",
-          "when": "view == plasticScm.branchesView",
-          "group": "navigation"
-        },
-        {
-          "command": "plasticScm.showHistoryGraph",
-          "when": "view == plasticScm.branchesView",
-          "group": "navigation"
-        }
-      ],
+      "view/item/context": [],
+      "view/title": [],
       "editor/title": [
         {
           "command": "plasticScm.openFile",
@@ -279,26 +246,12 @@
         }
       ]
     },
-    "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "plasticScm",
-          "title": "Plastic SCM",
-          "icon": "media/plastic-scm.svg"
-        }
-      ]
-    },
     "views": {
-      "plasticScm": [
-        {
-          "id": "plasticScm.branchesView",
-          "name": "Branches",
-          "when": "plasticScm.isActive"
-        },
+      "scm": [
         {
           "id": "plasticScm.historyGraphView",
           "type": "webview",
-          "name": "History",
+          "name": "Graph",
           "when": "plasticScm.isActive"
         }
       ]

@@ -197,14 +197,11 @@ export class PlasticScmProvider implements vscode.Disposable {
 			try {
 				const branch = await getCurrentBranch();
 				if (branch !== undefined && branch !== this.currentBranch) {
-					const isFirstPoll = this.currentBranch === undefined;
 					this.currentBranch = branch;
-					if (!isFirstPoll) {
-						this.onDidChangeBranchEmitter.fire(branch);
-					}
+					this.onDidChangeBranchEmitter.fire(branch);
 				}
-			} catch {
-				// Branch poll failure is non-critical
+			} catch (branchErr) {
+				logError('Branch poll failed (non-critical)', branchErr);
 			}
 		} catch (err) {
 			this.consecutiveErrors++;

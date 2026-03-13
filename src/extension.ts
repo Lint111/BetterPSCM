@@ -11,7 +11,6 @@ import { registerCheckinCommands } from './commands/checkin';
 import { registerGeneralCommands } from './commands/general';
 import { registerBranchCommands } from './commands/branch';
 import { registerAuthCommands } from './commands/auth';
-import { BranchesTreeProvider } from './views/branchesTreeProvider';
 import { HistoryGraphViewProvider } from './views/historyGraphPanel';
 import { COMMANDS, SETTINGS } from './constants';
 import { detectWorkspace, detectClientConfig, detectCachedToken, hasPlasticWorkspace } from './util/plasticDetector';
@@ -195,15 +194,9 @@ async function setupProvider(context: vscode.ExtensionContext): Promise<void> {
 	registerStagingCommands(context, provider);
 	registerCheckinCommands(context, provider);
 	registerGeneralCommands(context, provider);
+	registerBranchCommands(context, provider);
 
-	// Create branch tree view
-	const branchTree = disposables.add(new BranchesTreeProvider());
-	disposables.add(vscode.window.registerTreeDataProvider('plasticScm.branchesView', branchTree));
-
-	// Register branch commands (replaces stubs)
-	registerBranchCommands(context, provider, branchTree);
-
-	// Register history graph sidebar view
+	// Register history graph in the Source Control sidebar
 	const historyGraphProvider = new HistoryGraphViewProvider(context.extensionUri);
 	disposables.add(historyGraphProvider);
 	context.subscriptions.push(
@@ -214,7 +207,6 @@ async function setupProvider(context: vscode.ExtensionContext): Promise<void> {
 	);
 	context.subscriptions.push(
 		vscode.commands.registerCommand(COMMANDS.showHistoryGraph, () => {
-			// Focus the sidebar view
 			vscode.commands.executeCommand('plasticScm.historyGraphView.focus');
 		}),
 	);

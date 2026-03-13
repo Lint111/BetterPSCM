@@ -3,6 +3,7 @@ import { PLASTIC_URI_SCHEME } from '../constants';
 import { buildPlasticUri, parsePlasticUri } from '../util/uri';
 import { fetchFileContent } from '../core/workspace';
 import { logError } from '../util/logger';
+import { LruCache } from '../util/cache';
 import type { NormalizedChange } from '../core/types';
 
 const DIFF_CHANGE_TYPES = new Set([
@@ -51,8 +52,6 @@ export class PlasticQuickDiffProvider implements vscode.QuickDiffProvider {
 	}
 }
 
-const CACHE_MAX_ENTRIES = 50;
-
 /**
  * TextDocumentContentProvider for the plastic: URI scheme.
  * Fetches file content from the Plastic SCM server for diff views.
@@ -61,7 +60,7 @@ const CACHE_MAX_ENTRIES = 50;
 export class PlasticContentProvider implements vscode.TextDocumentContentProvider {
 	private readonly onDidChangeEmitter = new vscode.EventEmitter<vscode.Uri>();
 	public readonly onDidChange = this.onDidChangeEmitter.event;
-	private readonly cache = new Map<string, string>();
+	private readonly cache = new LruCache<string, string>(50);
 
 	async provideTextDocumentContent(uri: vscode.Uri): Promise<string | undefined> {
 		const parsed = parsePlasticUri(uri);
@@ -74,14 +73,7 @@ export class PlasticContentProvider implements vscode.TextDocumentContentProvide
 		try {
 			const content = await fetchFileContent(parsed.revisionGuid);
 			const text = content ? new TextDecoder('utf-8').decode(content) : '';
-
-			// Evict oldest entry if cache is full
-			if (this.cache.size >= CACHE_MAX_ENTRIES) {
-				const oldest = this.cache.keys().next().value;
-				if (oldest !== undefined) this.cache.delete(oldest);
-			}
 			this.cache.set(cacheKey, text);
-
 			return text;
 		} catch (err) {
 			logError(`Failed to fetch content for ${uri.toString()}`, err);
