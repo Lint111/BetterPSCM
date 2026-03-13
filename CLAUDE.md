@@ -12,8 +12,9 @@ See `docs/implementation-plan.md` for the full phased plan with architecture det
 - **Backend refactor** ✅ `PlasticBackend` interface with `CliBackend` (primary) + `RestBackend` (fallback)
 - **Phase 3a** ✅ Branch tree view, create/switch/delete commands
 - **Phase 3b** ✅ History graph webview panel with changeset visualization, click-to-diff per file
+- **Phase 4** ✅ Code reviews — full lifecycle (list, create, comment, status, reviewers) via REST API
 - **Tests** ✅ 176 unit tests (vitest)
-- **Next**: Phase 4 (code reviews) or Phase 5 (labels, merges, history, locks)
+- **Next**: Phase 5 (labels, merges, history, locks)
 
 ### Recent Improvements (Phase 3b session)
 - **Caching utilities** — Generic `LruCache` and `TtlCache` classes (`src/util/cache.ts`), used across diff cache, graph cache, branch cache, quick diff cache
@@ -51,7 +52,7 @@ npm run watch                # Watch mode for development
 Layer 7: MCP Server        → src/mcp/          (Phase 6)
 Layer 6: Status Bar        → src/statusBar/    ✅
 Layer 5: Commands          → src/commands/     ✅ (staging, checkin, auth, general, branch)
-Layer 4: Tree Views        → src/views/        ✅ branches, history graph (Phase 4-5 remaining)
+Layer 4: Tree Views        → src/views/        ✅ branches, history graph, code reviews (Phase 5 remaining)
 Layer 3: SCM Provider      → src/scm/          ✅
 Layer 2: Core Services     → src/core/         ✅ (workspace, types, backend abstraction)
 Layer 1: API Client        → src/api/          ✅

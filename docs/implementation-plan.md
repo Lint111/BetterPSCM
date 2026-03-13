@@ -197,13 +197,17 @@ vscode-plastic-scm/
 9. ✅ Parent revision resolution fallback (`changeset<=N ... order by desc limit 1`)
 10. 🔲 `src/commands/update.ts` — workspace update with conflict handling via `POST /workspaces/{guid}/update`
 
-### Phase 4: Code Reviews
+### Phase 4: Code Reviews ✅ COMPLETE
 **Deliverable**: Full review lifecycle in VS Code.
 
-1. `src/core/codeReviews.ts` — CRUD + comments + reviewers via v1+v2 endpoints
-2. `src/views/codeReviewsTreeProvider.ts` — three sections: assigned to me, created by me, all pending
-3. Code review webview panel (metadata, diffs, threaded comments, approve/request rework actions)
-4. Badge count for assigned reviews on the tree view icon
+1. ✅ Backend interface: 11 code review methods on `PlasticBackend` (list, get, create, delete, status, comments, reviewers)
+2. ✅ `src/core/backendRest.ts` — Full REST implementation using v1 endpoints (list, get, create, delete, status change via comment type, comments with replies, reviewer CRUD + status)
+3. ✅ `src/core/backendCli.ts` — Throws `NotSupportedError` (code reviews require REST API)
+4. ✅ `src/views/codeReviewsTreeProvider.ts` — Tree view with filterable list (all, assigned, created by me, pending), status icons
+5. ✅ `src/views/codeReviewPanel.ts` — Webview panel with review details, reviewer management, threaded comments, status change
+6. ✅ `src/commands/codeReview.ts` — Create review (branch picker + title input), open review
+7. ✅ Backend-neutral types: `CodeReviewInfo`, `ReviewerInfo`, `ReviewCommentInfo`, `CreateReviewParams`, `CreateCommentParams`
+8. 🔲 Badge count for assigned reviews on the tree view icon (deferred)
 
 ### Phase 5: Labels, Merges, History, Locks
 **Deliverable**: Feature parity with desktop client for daily operations.
