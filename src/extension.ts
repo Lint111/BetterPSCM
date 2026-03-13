@@ -12,6 +12,9 @@ import { registerGeneralCommands } from './commands/general';
 import { registerBranchCommands } from './commands/branch';
 import { registerUpdateCommands } from './commands/update';
 import { registerCodeReviewCommands } from './commands/codeReview';
+import { registerHistoryCommands } from './commands/history';
+import { registerMergeCommands } from './commands/merge';
+import { registerLabelCommands } from './commands/label';
 import { registerAuthCommands } from './commands/auth';
 import { CodeReviewsTreeProvider } from './views/codeReviewsTreeProvider';
 import { HistoryGraphViewProvider } from './views/historyGraphPanel';
@@ -199,6 +202,9 @@ async function setupProvider(context: vscode.ExtensionContext): Promise<void> {
 	registerGeneralCommands(context, provider);
 	registerBranchCommands(context, provider);
 	registerUpdateCommands(context, provider);
+	registerHistoryCommands(context);
+	registerMergeCommands(context, provider);
+	registerLabelCommands(context);
 
 	// Register code reviews tree view
 	const codeReviewsTree = new CodeReviewsTreeProvider();
@@ -316,11 +322,8 @@ async function tryAutoLoginFromDesktopClient(): Promise<boolean> {
  * Prevents "command not found" errors when users click menu items.
  */
 function registerStubCommands(context: vscode.ExtensionContext): void {
-	const stubCommands = [
-		COMMANDS.mergeTo,
-		COMMANDS.createLabel,
-		COMMANDS.showFileHistory,
-		COMMANDS.annotateFile,
+	const stubCommands: string[] = [
+		// All Phase 5 commands now implemented
 	];
 
 	for (const cmd of stubCommands) {

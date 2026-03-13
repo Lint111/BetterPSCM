@@ -4,6 +4,8 @@ import type {
 	StatusResult, CheckinResult, BranchInfo, ChangesetInfo, ChangesetDiffItem,
 	UpdateResult, CodeReviewInfo, ReviewCommentInfo, ReviewerInfo,
 	CreateReviewParams, CreateCommentParams, ReviewStatus,
+	LabelInfo, CreateLabelParams, FileHistoryEntry, BlameLine,
+	MergeReport, MergeResult,
 } from './types';
 
 // Re-export for consumers that import from workspace.ts
@@ -155,4 +157,37 @@ export async function removeReviewer(reviewId: number, reviewer: string): Promis
 
 export async function updateReviewerStatus(reviewId: number, reviewer: string, status: ReviewStatus): Promise<void> {
 	return getBackend().updateReviewerStatus(reviewId, reviewer, status);
+}
+
+// ── Phase 5: Labels, History, Merges ───────────────────────────────
+
+export async function listLabels(): Promise<LabelInfo[]> {
+	return getBackend().listLabels();
+}
+
+export async function createLabel(params: CreateLabelParams): Promise<LabelInfo> {
+	return getBackend().createLabel(params);
+}
+
+export async function deleteLabel(id: number): Promise<void> {
+	return getBackend().deleteLabel(id);
+}
+
+export async function getFileHistory(path: string): Promise<FileHistoryEntry[]> {
+	return getBackend().getFileHistory(path);
+}
+
+export async function getBlame(path: string): Promise<BlameLine[]> {
+	return getBackend().getBlame(path);
+}
+
+export async function checkMergeAllowed(sourceBranch: string, targetBranch: string): Promise<MergeReport> {
+	return getBackend().checkMergeAllowed(sourceBranch, targetBranch);
+}
+
+export async function executeMerge(sourceBranch: string, targetBranch: string, comment?: string): Promise<MergeResult> {
+	const result = await getBackend().executeMerge(sourceBranch, targetBranch, comment);
+	branchCache.clear();
+	branchListCache.clear();
+	return result;
 }

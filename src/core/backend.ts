@@ -3,6 +3,8 @@ import type {
 	StatusResult, CheckinResult, BranchInfo, ChangesetInfo, ChangesetDiffItem,
 	UpdateResult, CodeReviewInfo, ReviewCommentInfo, ReviewerInfo,
 	CreateReviewParams, CreateCommentParams, ReviewStatus,
+	LabelInfo, CreateLabelParams, FileHistoryEntry, BlameLine,
+	MergeReport, MergeResult,
 } from './types';
 
 /**
@@ -41,6 +43,19 @@ export interface PlasticBackend {
 	addReviewers(reviewId: number, reviewers: string[]): Promise<void>;
 	removeReviewer(reviewId: number, reviewer: string): Promise<void>;
 	updateReviewerStatus(reviewId: number, reviewer: string, status: ReviewStatus): Promise<void>;
+
+	// Phase 5 — labels
+	listLabels(): Promise<LabelInfo[]>;
+	createLabel(params: CreateLabelParams): Promise<LabelInfo>;
+	deleteLabel(id: number): Promise<void>;
+
+	// Phase 5 — file history + annotate
+	getFileHistory(path: string): Promise<FileHistoryEntry[]>;
+	getBlame(path: string): Promise<BlameLine[]>;
+
+	// Phase 5 — merges
+	checkMergeAllowed(sourceBranch: string, targetBranch: string): Promise<MergeReport>;
+	executeMerge(sourceBranch: string, targetBranch: string, comment?: string): Promise<MergeResult>;
 }
 
 let activeBackend: PlasticBackend | undefined;

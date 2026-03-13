@@ -18,6 +18,12 @@ import type {
 	CreateReviewParams,
 	CreateCommentParams,
 	ReviewStatus,
+	LabelInfo,
+	CreateLabelParams,
+	FileHistoryEntry,
+	BlameLine,
+	MergeReport,
+	MergeResult,
 } from './types';
 import { NotSupportedError } from './types';
 
@@ -434,6 +440,111 @@ export class CliBackend implements PlasticBackend {
 	async addReviewers(): Promise<void> { throw new NotSupportedError('addReviewers', this.name); }
 	async removeReviewer(): Promise<void> { throw new NotSupportedError('removeReviewer', this.name); }
 	async updateReviewerStatus(): Promise<void> { throw new NotSupportedError('updateReviewerStatus', this.name); }
+
+	// Phase 5 — Labels
+	async listLabels(): Promise<LabelInfo[]> {
+		const result = await execCm([
+			'find', 'label',
+			'--format={name}#{id}#{owner}#{date}#{changeset}#{comment}',
+			'--nototal',
+		]);
+		if (result.exitCode !== 0) {
+			throw new Error(`cm find label failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
+		}
+		const lines = result.stdout.split(/\r?\n/).filter(l => l.length > 0);
+		return lines.map(parseLabelLine).filter((l): l is LabelInfo => l !== undefined);
+	}
+
+	async createLabel(params: CreateLabelParams): Promise<LabelInfo> {
+		const args = ['label', params.name, `cs:${params.changesetId}`];
+		if (params.comment) args.push(`-c=${params.comment}`);
+		const result = await execCm(args);
+		if (result.exitCode !== 0) {
+			throw new Error(`cm label failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
+		}
+		return {
+			id: 0, // cm doesn't return label ID
+			name: params.name,
+			owner: '',
+			date: new Date().toISOString(),
+			changesetId: params.changesetId,
+			comment: params.comment,
+		};
+	}
+
+	async deleteLabel(id: number): Promise<void> {
+		// cm doesn't delete by ID, need to find name first
+		const result = await execCm([
+			'find', 'label', `where id=${id}`, '--format={name}', '--nototal',
+		]);
+		if (result.exitCode !== 0 || !result.stdout.trim()) {
+			throw new Error(`Label with ID ${id} not found`);
+		}
+		const name = result.stdout.trim().split(/\r?\n/)[0].trim();
+		const delResult = await execCm(['label', 'delete', name]);
+		if (delResult.exitCode !== 0) {
+			throw new Error(`cm label delete failed (exit ${delResult.exitCode}): ${delResult.stderr || delResult.stdout}`);
+		}
+	}
+
+	// Phase 5 — File history + annotate
+	async getFileHistory(path: string): Promise<FileHistoryEntry[]> {
+		const result = await execCm([
+			'history', path, '--format={changeset}#{branch}#{owner}#{date}#{comment}#{type}',
+		]);
+		if (result.exitCode !== 0) {
+			throw new Error(`cm history failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
+		}
+		const lines = result.stdout.split(/\r?\n/).filter(l => l.length > 0);
+		return lines.map(parseHistoryLine).filter((h): h is FileHistoryEntry => h !== undefined);
+	}
+
+	async getBlame(path: string): Promise<BlameLine[]> {
+		const result = await execCm(['annotate', path]);
+		if (result.exitCode !== 0) {
+			throw new Error(`cm annotate failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
+		}
+		return parseAnnotateOutput(result.stdout);
+	}
+
+	// Phase 5 — Merges
+	async checkMergeAllowed(sourceBranch: string, targetBranch: string): Promise<MergeReport> {
+		const result = await execCm([
+			'merge', sourceBranch, '--to=' + targetBranch, '--preview',
+		]);
+		const output = result.stdout + '\n' + result.stderr;
+		const conflicts = output.split(/\r?\n/)
+			.filter(l => l.toLowerCase().includes('conflict'))
+			.map(l => l.trim());
+		return {
+			canMerge: result.exitCode === 0 && conflicts.length === 0,
+			conflicts,
+			changes: output.split(/\r?\n/).filter(l => l.trim().length > 0).length,
+			message: result.exitCode !== 0 ? output.trim() : undefined,
+		};
+	}
+
+	async executeMerge(sourceBranch: string, targetBranch: string, comment?: string): Promise<MergeResult> {
+		const args = ['merge', sourceBranch, '--to=' + targetBranch];
+		if (comment) args.push(`-c=${comment}`);
+		const result = await execCm(args);
+		if (result.exitCode !== 0) {
+			const output = result.stderr || result.stdout;
+			const conflicts = output.split(/\r?\n/)
+				.filter(l => l.toLowerCase().includes('conflict'))
+				.map(l => l.trim());
+			if (conflicts.length > 0) {
+				return { changesetId: 0, conflicts };
+			}
+			throw new Error(`cm merge failed (exit ${result.exitCode}): ${output}`);
+		}
+		// Try to parse the new changeset ID from output
+		const csMatch = result.stdout.match(/changeset\s+(\d+)/i);
+		return {
+			changesetId: csMatch ? parseInt(csMatch[1], 10) : 0,
+			conflicts: [],
+		};
+	}
 }
 
 function parseDiffOutput(stdout: string): ChangesetDiffItem[] {
@@ -643,4 +754,69 @@ function stripWorkspaceRoot(filePath: string): string {
 	}
 
 	return filePath;
+}
+
+function parseLabelLine(line: string): LabelInfo | undefined {
+	const parts = line.split('#');
+	if (parts.length < 5) return undefined;
+	return {
+		name: parts[0],
+		id: parseInt(parts[1], 10) || 0,
+		owner: parts[2],
+		date: parts[3],
+		changesetId: parseInt(parts[4], 10) || 0,
+		comment: parts[5] || undefined,
+	};
+}
+
+function parseHistoryLine(line: string): FileHistoryEntry | undefined {
+	const parts = line.split('#');
+	if (parts.length < 5) return undefined;
+	const csId = parseInt(parts[0], 10);
+	if (isNaN(csId)) return undefined;
+	const typeStr = (parts[5] || '').toLowerCase();
+	return {
+		revisionId: 0,
+		changesetId: csId,
+		branch: parts[1],
+		owner: parts[2],
+		date: parts[3],
+		comment: parts[4] || undefined,
+		type: typeStr.includes('add') ? 'added'
+			: typeStr.includes('del') ? 'deleted'
+			: typeStr.includes('mov') ? 'moved'
+			: 'changed',
+	};
+}
+
+function parseAnnotateOutput(stdout: string): BlameLine[] {
+	const lines = stdout.split(/\r?\n/);
+	const result: BlameLine[] = [];
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i];
+		if (!line) continue;
+		// cm annotate format: "cs:N owner date | content"
+		const match = line.match(/^cs:(\d+)\s+(\S+)\s+(\S+)\s+\|\s?(.*)$/);
+		if (match) {
+			result.push({
+				lineNumber: i + 1,
+				changesetId: parseInt(match[1], 10),
+				author: match[2],
+				date: match[3],
+				content: match[4],
+				revisionId: 0,
+			});
+		} else {
+			// Fallback: just store the line content
+			result.push({
+				lineNumber: i + 1,
+				changesetId: 0,
+				author: '',
+				date: '',
+				content: line,
+				revisionId: 0,
+			});
+		}
+	}
+	return result;
 }

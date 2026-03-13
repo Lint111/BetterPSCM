@@ -151,6 +151,56 @@ export interface CreateCommentParams {
 	parentCommentId?: number;
 }
 
+// ── Phase 5: Labels, Merges, History, Locks ─────────────────────────
+
+export interface LabelInfo {
+	id: number;
+	name: string;
+	comment?: string;
+	owner: string;
+	date: string;
+	changesetId: number;
+	branch?: string;
+}
+
+export interface CreateLabelParams {
+	name: string;
+	changesetId: number;
+	comment?: string;
+}
+
+export interface FileHistoryEntry {
+	revisionId: number;
+	changesetId: number;
+	branch: string;
+	owner: string;
+	date: string;
+	comment?: string;
+	type: 'added' | 'changed' | 'deleted' | 'moved';
+}
+
+export interface BlameLine {
+	lineNumber: number;
+	content: string;
+	revisionId: number;
+	changesetId: number;
+	author: string;
+	date: string;
+	comment?: string;
+}
+
+export interface MergeReport {
+	canMerge: boolean;
+	conflicts: string[];
+	changes: number;
+	message?: string;
+}
+
+export interface MergeResult {
+	changesetId: number;
+	conflicts: string[];
+}
+
 export class NotSupportedError extends Error {
 	constructor(operation: string, backend: string) {
 		super(`"${operation}" is not supported by the ${backend} backend`);

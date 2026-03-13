@@ -5,9 +5,11 @@ import type {
 	StatusResult, CheckinResult, NormalizedChange, BranchInfo, ChangesetInfo,
 	ChangesetDiffItem, UpdateResult, CodeReviewInfo, ReviewCommentInfo,
 	ReviewerInfo, CreateReviewParams, CreateCommentParams, ReviewStatus,
+	LabelInfo, CreateLabelParams, FileHistoryEntry, BlameLine,
+	MergeReport, MergeResult,
 } from './types';
 import type { CheckInRequest } from './types';
-import { normalizeChange } from './types';
+import { normalizeChange, NotSupportedError } from './types';
 
 export class RestBackend implements PlasticBackend {
 	readonly name = 'REST API';
@@ -494,6 +496,129 @@ export class RestBackend implements PlasticBackend {
 		if (error) throw error;
 		log(`Updated reviewer "${reviewer}" status to "${status}" on review ${reviewId}`);
 	}
+
+	// Phase 5 — Labels
+	async listLabels(): Promise<LabelInfo[]> {
+		const client = getClient();
+		const orgName = getOrgName();
+		const repoName = getRepoName();
+
+		const { data, error } = await client.GET(
+			'/api/v1/organizations/{orgName}/repos/{repoName}/labels',
+			{ params: { path: { orgName, repoName } } },
+		);
+
+		if (error) throw error;
+		return ((data as any) ?? []).map(mapLabel);
+	}
+
+	async createLabel(params: CreateLabelParams): Promise<LabelInfo> {
+		const client = getClient();
+		const orgName = getOrgName();
+		const repoName = getRepoName();
+
+		const { data, error } = await client.POST(
+			'/api/v1/organizations/{orgName}/repos/{repoName}/labels',
+			{
+				params: { path: { orgName, repoName } },
+				body: {
+					name: params.name,
+					changeset: params.changesetId,
+					comment: params.comment,
+				} as any,
+			},
+		);
+
+		if (error) throw error;
+		return mapLabel(data ?? { name: params.name, changeset: params.changesetId });
+	}
+
+	async deleteLabel(id: number): Promise<void> {
+		const client = getClient();
+		const orgName = getOrgName();
+		const repoName = getRepoName();
+
+		const { error } = await client.DELETE(
+			'/api/v2/organizations/{orgName}/repositories/{repoName}/labels/{labelId}',
+			{ params: { path: { orgName, repoName, labelId: id } } },
+		);
+
+		if (error) throw error;
+	}
+
+	// Phase 5 — File history
+	async getFileHistory(path: string): Promise<FileHistoryEntry[]> {
+		const client = getClient();
+		const orgName = getOrgName();
+		const repoName = getRepoName();
+
+		const { data, error } = await client.GET(
+			'/api/v1/organizations/{orgName}/repos/{repoName}/branch/{branchName}/history/{path}',
+			{
+				params: {
+					path: { orgName, repoName, branchName: 'main', path },
+				},
+			},
+		);
+
+		if (error) throw error;
+		return ((data as any) ?? []).map(mapHistoryEntry);
+	}
+
+	async getBlame(_path: string): Promise<BlameLine[]> {
+		throw new NotSupportedError('getBlame', this.name);
+	}
+
+	// Phase 5 — Merges
+	async checkMergeAllowed(sourceBranch: string, targetBranch: string): Promise<MergeReport> {
+		const client = getClient();
+		const orgName = getOrgName();
+		const repoName = getRepoName();
+
+		const { data, error } = await client.GET(
+			'/api/v1/organizations/{orgName}/repos/{repoName}/mergeto/allowed/{srcBranchName}',
+			{
+				params: {
+					path: { orgName, repoName, srcBranchName: sourceBranch },
+					query: { to: targetBranch } as any,
+				},
+			},
+		);
+
+		if (error) throw error;
+		const d = data as any;
+		return {
+			canMerge: d?.isAllowed ?? false,
+			conflicts: (d?.conflicts ?? []).map((c: any) => c?.path ?? String(c)),
+			changes: d?.changesCount ?? 0,
+			message: d?.message ?? undefined,
+		};
+	}
+
+	async executeMerge(sourceBranch: string, targetBranch: string, comment?: string): Promise<MergeResult> {
+		const client = getClient();
+		const orgName = getOrgName();
+		const repoName = getRepoName();
+
+		const { data, error } = await client.POST(
+			'/api/v1/organizations/{orgName}/repos/{repoName}/mergeto',
+			{
+				params: { path: { orgName, repoName } },
+				body: {
+					source: sourceBranch,
+					destination: targetBranch,
+					comment,
+				} as any,
+			},
+		);
+
+		if (error) throw error;
+		const d = data as any;
+		return {
+			changesetId: d?.changesetId ?? 0,
+			conflicts: (d?.conflicts ?? []).map((c: any) => c?.path ?? String(c)),
+		};
+	}
 }
 
 function mapCodeReview(data: any): CodeReviewInfo {
@@ -542,4 +667,31 @@ function isSystemCommentType(type: string | undefined): boolean {
 	const system = ['Timeline', 'Script', 'Discarded', 'Description',
 		'RequestedReviewer', 'ReRequestedReviewer'];
 	return system.includes(type ?? '');
+}
+
+function mapLabel(data: any): LabelInfo {
+	return {
+		id: data?.id ?? 0,
+		name: data?.name ?? '',
+		comment: data?.comment ?? undefined,
+		owner: data?.owner ?? '',
+		date: data?.timestamp ?? data?.date ?? '',
+		changesetId: data?.changeset ?? data?.changesetId ?? 0,
+		branch: data?.branch ?? undefined,
+	};
+}
+
+function mapHistoryEntry(data: any): FileHistoryEntry {
+	return {
+		revisionId: data?.revisionId ?? 0,
+		changesetId: data?.changesetId ?? data?.changeset ?? 0,
+		branch: data?.branch ?? '',
+		owner: data?.owner ?? '',
+		date: data?.timestamp ?? data?.date ?? '',
+		comment: data?.comment ?? undefined,
+		type: (data?.type ?? 'changed').toLowerCase().includes('add') ? 'added'
+			: (data?.type ?? '').toLowerCase().includes('del') ? 'deleted'
+			: (data?.type ?? '').toLowerCase().includes('mov') ? 'moved'
+			: 'changed',
+	};
 }
