@@ -11,7 +11,9 @@ import { registerCheckinCommands } from './commands/checkin';
 import { registerGeneralCommands } from './commands/general';
 import { registerBranchCommands } from './commands/branch';
 import { registerUpdateCommands } from './commands/update';
+import { registerCodeReviewCommands } from './commands/codeReview';
 import { registerAuthCommands } from './commands/auth';
+import { CodeReviewsTreeProvider } from './views/codeReviewsTreeProvider';
 import { HistoryGraphViewProvider } from './views/historyGraphPanel';
 import { COMMANDS, SETTINGS } from './constants';
 import { detectWorkspace, detectClientConfig, detectCachedToken, hasPlasticWorkspace } from './util/plasticDetector';
@@ -198,6 +200,16 @@ async function setupProvider(context: vscode.ExtensionContext): Promise<void> {
 	registerBranchCommands(context, provider);
 	registerUpdateCommands(context, provider);
 
+	// Register code reviews tree view
+	const codeReviewsTree = new CodeReviewsTreeProvider();
+	disposables.add(codeReviewsTree);
+	context.subscriptions.push(
+		vscode.window.createTreeView('plasticScm.codeReviewsView', {
+			treeDataProvider: codeReviewsTree,
+		}),
+	);
+	registerCodeReviewCommands(context, codeReviewsTree);
+
 	// Register history graph in the Source Control sidebar
 	const historyGraphProvider = new HistoryGraphViewProvider(context.extensionUri);
 	disposables.add(historyGraphProvider);
@@ -306,8 +318,6 @@ async function tryAutoLoginFromDesktopClient(): Promise<boolean> {
 function registerStubCommands(context: vscode.ExtensionContext): void {
 	const stubCommands = [
 		COMMANDS.mergeTo,
-		COMMANDS.createCodeReview,
-		COMMANDS.openCodeReview,
 		COMMANDS.createLabel,
 		COMMANDS.showFileHistory,
 		COMMANDS.annotateFile,

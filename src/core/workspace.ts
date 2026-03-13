@@ -1,6 +1,10 @@
 import { getBackend } from './backend';
 import { TtlCache } from '../util/cache';
-import type { StatusResult, CheckinResult, BranchInfo, ChangesetInfo, ChangesetDiffItem, UpdateResult } from './types';
+import type {
+	StatusResult, CheckinResult, BranchInfo, ChangesetInfo, ChangesetDiffItem,
+	UpdateResult, CodeReviewInfo, ReviewCommentInfo, ReviewerInfo,
+	CreateReviewParams, CreateCommentParams, ReviewStatus,
+} from './types';
 
 // Re-export for consumers that import from workspace.ts
 export type { StatusResult as WorkspaceStatusResult } from './types';
@@ -105,4 +109,50 @@ export async function listChangesets(branchName?: string, limit?: number): Promi
  */
 export async function getChangesetDiff(changesetId: number, parentId: number): Promise<ChangesetDiffItem[]> {
 	return getBackend().getChangesetDiff(changesetId, parentId);
+}
+
+// ── Phase 4: Code Reviews ──────────────────────────────────────────
+
+export async function listCodeReviews(filter?: 'all' | 'assignedToMe' | 'createdByMe' | 'pending'): Promise<CodeReviewInfo[]> {
+	return getBackend().listCodeReviews(filter);
+}
+
+export async function getCodeReview(id: number): Promise<CodeReviewInfo> {
+	return getBackend().getCodeReview(id);
+}
+
+export async function createCodeReview(params: CreateReviewParams): Promise<CodeReviewInfo> {
+	return getBackend().createCodeReview(params);
+}
+
+export async function deleteCodeReview(id: number): Promise<void> {
+	return getBackend().deleteCodeReview(id);
+}
+
+export async function updateCodeReviewStatus(id: number, status: ReviewStatus): Promise<void> {
+	return getBackend().updateCodeReviewStatus(id, status);
+}
+
+export async function getReviewComments(reviewId: number): Promise<ReviewCommentInfo[]> {
+	return getBackend().getReviewComments(reviewId);
+}
+
+export async function addReviewComment(params: CreateCommentParams): Promise<ReviewCommentInfo> {
+	return getBackend().addReviewComment(params);
+}
+
+export async function getReviewers(reviewId: number): Promise<ReviewerInfo[]> {
+	return getBackend().getReviewers(reviewId);
+}
+
+export async function addReviewers(reviewId: number, reviewers: string[]): Promise<void> {
+	return getBackend().addReviewers(reviewId, reviewers);
+}
+
+export async function removeReviewer(reviewId: number, reviewer: string): Promise<void> {
+	return getBackend().removeReviewer(reviewId, reviewer);
+}
+
+export async function updateReviewerStatus(reviewId: number, reviewer: string, status: ReviewStatus): Promise<void> {
+	return getBackend().updateReviewerStatus(reviewId, reviewer, status);
 }

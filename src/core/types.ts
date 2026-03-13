@@ -94,6 +94,63 @@ export interface UpdateResult {
 	conflicts: string[];
 }
 
+// ── Phase 4: Code Reviews ──────────────────────────────────────────
+
+export type ReviewStatus = 'Under review' | 'Reviewed' | 'Rework required';
+
+export interface CodeReviewInfo {
+	id: number;
+	title: string;
+	description?: string;
+	status: ReviewStatus;
+	owner: string;
+	assignee?: string;
+	created: string;
+	modified: string;
+	targetType: 'Branch' | 'Changeset' | 'Label';
+	targetSpec?: string;
+	targetId: number;
+	commentsCount: number;
+	repositoryName?: string;
+	reviewers: ReviewerInfo[];
+}
+
+export interface ReviewerInfo {
+	name: string;
+	status: ReviewStatus;
+	isGroup: boolean;
+}
+
+export type ReviewCommentType =
+	| 'Comment' | 'Change' | 'Question' | 'Conversation'
+	| 'StatusUnderReview' | 'StatusReworkRequired' | 'StatusReviewed';
+
+export interface ReviewCommentInfo {
+	id: number;
+	owner: string;
+	text: string;
+	type: ReviewCommentType;
+	timestamp: string;
+	parentCommentId?: number;
+	itemName?: string;
+	locationSpec?: string;
+}
+
+export interface CreateReviewParams {
+	title: string;
+	targetType: 'Branch' | 'Changeset' | 'Label';
+	targetId: number;
+	targetSpec?: string;
+	description?: string;
+	reviewers?: string[];
+}
+
+export interface CreateCommentParams {
+	reviewId: number;
+	text: string;
+	parentCommentId?: number;
+}
+
 export class NotSupportedError extends Error {
 	constructor(operation: string, backend: string) {
 		super(`"${operation}" is not supported by the ${backend} backend`);

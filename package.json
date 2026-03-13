@@ -226,8 +226,20 @@
           "group": "2_history"
         }
       ],
-      "view/item/context": [],
-      "view/title": [],
+      "view/item/context": [
+        {
+          "command": "plasticScm.openCodeReview",
+          "when": "view == plasticScm.codeReviewsView && viewItem == codeReview",
+          "group": "navigation"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "plasticScm.createCodeReview",
+          "when": "view == plasticScm.codeReviewsView",
+          "group": "navigation"
+        }
+      ],
       "editor/title": [
         {
           "command": "plasticScm.openFile",
@@ -252,6 +264,11 @@
           "id": "plasticScm.historyGraphView",
           "type": "webview",
           "name": "Graph",
+          "when": "plasticScm.isActive"
+        },
+        {
+          "id": "plasticScm.codeReviewsView",
+          "name": "Code Reviews",
           "when": "plasticScm.isActive"
         }
       ]

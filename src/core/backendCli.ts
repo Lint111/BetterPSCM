@@ -12,7 +12,14 @@ import type {
 	ChangesetInfo,
 	ChangesetDiffItem,
 	UpdateResult,
+	CodeReviewInfo,
+	ReviewCommentInfo,
+	ReviewerInfo,
+	CreateReviewParams,
+	CreateCommentParams,
+	ReviewStatus,
 } from './types';
+import { NotSupportedError } from './types';
 
 const CM_CHANGE_TYPE_MAP: Record<string, StatusChangeType> = {
 	PR: 'private',
@@ -414,6 +421,19 @@ export class CliBackend implements PlasticBackend {
 		log(`[getChangesetRevisions] parsed ${items.length} items`);
 		return items;
 	}
+
+	// Phase 4 — Code reviews require REST API
+	async listCodeReviews(): Promise<CodeReviewInfo[]> { throw new NotSupportedError('listCodeReviews', this.name); }
+	async getCodeReview(): Promise<CodeReviewInfo> { throw new NotSupportedError('getCodeReview', this.name); }
+	async createCodeReview(): Promise<CodeReviewInfo> { throw new NotSupportedError('createCodeReview', this.name); }
+	async deleteCodeReview(): Promise<void> { throw new NotSupportedError('deleteCodeReview', this.name); }
+	async updateCodeReviewStatus(): Promise<void> { throw new NotSupportedError('updateCodeReviewStatus', this.name); }
+	async getReviewComments(): Promise<ReviewCommentInfo[]> { throw new NotSupportedError('getReviewComments', this.name); }
+	async addReviewComment(): Promise<ReviewCommentInfo> { throw new NotSupportedError('addReviewComment', this.name); }
+	async getReviewers(): Promise<ReviewerInfo[]> { throw new NotSupportedError('getReviewers', this.name); }
+	async addReviewers(): Promise<void> { throw new NotSupportedError('addReviewers', this.name); }
+	async removeReviewer(): Promise<void> { throw new NotSupportedError('removeReviewer', this.name); }
+	async updateReviewerStatus(): Promise<void> { throw new NotSupportedError('updateReviewerStatus', this.name); }
 }
 
 function parseDiffOutput(stdout: string): ChangesetDiffItem[] {

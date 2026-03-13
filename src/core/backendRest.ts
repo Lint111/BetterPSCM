@@ -1,7 +1,11 @@
 import { getClient, getOrgName, getWorkspaceGuid, getRepoName } from '../api/client';
 import { log } from '../util/logger';
 import type { PlasticBackend } from './backend';
-import type { StatusResult, CheckinResult, NormalizedChange, BranchInfo, ChangesetInfo, ChangesetDiffItem, UpdateResult } from './types';
+import type {
+	StatusResult, CheckinResult, NormalizedChange, BranchInfo, ChangesetInfo,
+	ChangesetDiffItem, UpdateResult, CodeReviewInfo, ReviewCommentInfo,
+	ReviewerInfo, CreateReviewParams, CreateCommentParams, ReviewStatus,
+} from './types';
 import type { CheckInRequest } from './types';
 import { normalizeChange } from './types';
 
@@ -258,4 +262,284 @@ export class RestBackend implements PlasticBackend {
 			type: (d.type ?? 'changed').toLowerCase() as 'added' | 'changed' | 'deleted' | 'moved',
 		}));
 	}
+
+	// ── Phase 4: Code Reviews ──────────────────────────────────────
+
+	async listCodeReviews(filter?: 'all' | 'assignedToMe' | 'createdByMe' | 'pending'): Promise<CodeReviewInfo[]> {
+		const client = getClient();
+		const orgName = getOrgName();
+		const repoName = getRepoName();
+
+		const filterMap: Record<string, string> = {
+			all: 'All',
+			assignedToMe: 'AssignedToMe',
+			createdByMe: 'CreatedByMe',
+			pending: 'AllPending',
+		};
+
+		const { data, error } = await client.GET(
+			'/api/v1/organizations/{orgName}/repos/{repoName}/codereviews' as any,
+			{
+				params: {
+					path: { orgName, repoName },
+					query: filter ? { filter: filterMap[filter] ?? 'All' } : undefined,
+				},
+			},
+		);
+
+		if (error) throw error;
+		return ((data as any[]) ?? []).map(mapCodeReview);
+	}
+
+	async getCodeReview(id: number): Promise<CodeReviewInfo> {
+		const client = getClient();
+		const orgName = getOrgName();
+		const repoName = getRepoName();
+
+		const { data, error } = await client.GET(
+			'/api/v1/organizations/{orgName}/repos/{repoName}/codereview/{codeReviewId}' as any,
+			{ params: { path: { orgName, repoName, codeReviewId: id } } },
+		);
+
+		if (error) throw error;
+		return mapCodeReview(data);
+	}
+
+	async createCodeReview(params: CreateReviewParams): Promise<CodeReviewInfo> {
+		const client = getClient();
+		const orgName = getOrgName();
+		const repoName = getRepoName();
+
+		const body: any = {
+			title: params.title,
+			status: 'Under review',
+			object: {
+				type: params.targetType,
+				targetId: params.targetId,
+				spec: params.targetSpec,
+			},
+		};
+
+		const { data, error } = await client.POST(
+			'/api/v1/organizations/{orgName}/repos/{repoName}/codereview' as any,
+			{
+				params: { path: { orgName, repoName } },
+				body,
+			},
+		);
+
+		if (error) throw error;
+		const review = mapCodeReview(data);
+
+		// Add reviewers if specified
+		if (params.reviewers && params.reviewers.length > 0) {
+			await this.addReviewers(review.id, params.reviewers);
+		}
+
+		return review;
+	}
+
+	async deleteCodeReview(id: number): Promise<void> {
+		const client = getClient();
+		const orgName = getOrgName();
+		const repoName = getRepoName();
+
+		const { error } = await client.DELETE(
+			'/api/v1/organizations/{orgName}/repos/{repoName}/codereview/{codeReviewId}' as any,
+			{ params: { path: { orgName, repoName, codeReviewId: id } } },
+		);
+
+		if (error) throw error;
+		log(`Deleted code review ${id}`);
+	}
+
+	async updateCodeReviewStatus(id: number, status: ReviewStatus): Promise<void> {
+		const client = getClient();
+		const orgName = getOrgName();
+		const repoName = getRepoName();
+
+		// Status is changed by adding a status-change comment
+		const commentTypeMap: Record<string, string> = {
+			'Under review': 'StatusUnderReview',
+			'Reviewed': 'StatusReviewed',
+			'Rework required': 'StatusReworkRequired',
+		};
+
+		const { error } = await client.POST(
+			'/api/v1/organizations/{orgName}/repos/{repoName}/codereview/{codeReviewId}/comment' as any,
+			{
+				params: { path: { orgName, repoName, codeReviewId: id } },
+				body: {
+					revisionId: 0,
+					type: commentTypeMap[status] ?? 'StatusUnderReview',
+					commentText: '',
+				},
+			},
+		);
+
+		if (error) throw error;
+		log(`Updated code review ${id} status to "${status}"`);
+	}
+
+	async getReviewComments(reviewId: number): Promise<ReviewCommentInfo[]> {
+		const client = getClient();
+		const orgName = getOrgName();
+		const repoName = getRepoName();
+
+		const { data, error } = await client.GET(
+			'/api/v1/organizations/{orgName}/repos/{repoName}/codereview/{codeReviewId}/comment' as any,
+			{ params: { path: { orgName, repoName, codeReviewId: reviewId } } },
+		);
+
+		if (error) throw error;
+
+		const comments = (data as any)?.comments ?? (data as any[]) ?? [];
+		return comments
+			.filter((c: any) => !isSystemCommentType(c.type))
+			.map(mapComment);
+	}
+
+	async addReviewComment(params: CreateCommentParams): Promise<ReviewCommentInfo> {
+		const client = getClient();
+		const orgName = getOrgName();
+		const repoName = getRepoName();
+
+		if (params.parentCommentId) {
+			// Reply to existing comment
+			const { data, error } = await client.POST(
+				'/api/v1/organizations/{orgName}/repos/{repoName}/codereview/{codeReviewId}/comment/{parentCommentId}/reply' as any,
+				{
+					params: { path: { orgName, repoName, codeReviewId: params.reviewId, parentCommentId: params.parentCommentId } },
+					body: { commentText: params.text, type: 'Comment' },
+				},
+			);
+			if (error) throw error;
+			return mapComment(data);
+		}
+
+		const { data, error } = await client.POST(
+			'/api/v1/organizations/{orgName}/repos/{repoName}/codereview/{codeReviewId}/comment' as any,
+			{
+				params: { path: { orgName, repoName, codeReviewId: params.reviewId } },
+				body: { revisionId: 0, commentText: params.text, type: 'Comment' },
+			},
+		);
+
+		if (error) throw error;
+		return mapComment(data);
+	}
+
+	async getReviewers(reviewId: number): Promise<ReviewerInfo[]> {
+		const client = getClient();
+		const orgName = getOrgName();
+		const repoName = getRepoName();
+
+		const { data, error } = await client.GET(
+			'/api/v1/organizations/{orgName}/repos/{repoName}/codereview/{codeReviewId}/reviewers' as any,
+			{ params: { path: { orgName, repoName, codeReviewId: reviewId } } },
+		);
+
+		if (error) throw error;
+		return ((data as any[]) ?? []).map((r: any) => ({
+			name: r.reviewer ?? '',
+			status: r.status ?? 'Under review',
+			isGroup: r.isGroup ?? false,
+		}));
+	}
+
+	async addReviewers(reviewId: number, reviewers: string[]): Promise<void> {
+		const client = getClient();
+		const orgName = getOrgName();
+		const repoName = getRepoName();
+
+		const { error } = await client.POST(
+			'/api/v1/organizations/{orgName}/repos/{repoName}/codereview/{codeReviewId}/reviewers' as any,
+			{
+				params: { path: { orgName, repoName, codeReviewId: reviewId } },
+				body: { reviewers },
+			},
+		);
+
+		if (error) throw error;
+		log(`Added ${reviewers.length} reviewer(s) to review ${reviewId}`);
+	}
+
+	async removeReviewer(reviewId: number, reviewer: string): Promise<void> {
+		const client = getClient();
+		const orgName = getOrgName();
+		const repoName = getRepoName();
+
+		const { error } = await client.DELETE(
+			'/api/v1/organizations/{orgName}/repos/{repoName}/codereview/{codeReviewId}/reviewers/{reviewerName}' as any,
+			{ params: { path: { orgName, repoName, codeReviewId: reviewId, reviewerName: reviewer } } },
+		);
+
+		if (error) throw error;
+		log(`Removed reviewer "${reviewer}" from review ${reviewId}`);
+	}
+
+	async updateReviewerStatus(reviewId: number, reviewer: string, status: ReviewStatus): Promise<void> {
+		const client = getClient();
+		const orgName = getOrgName();
+		const repoName = getRepoName();
+
+		const { error } = await client.PUT(
+			'/api/v1/organizations/{orgName}/repos/{repoName}/codereview/{codeReviewId}/reviewers/{reviewerName}/status' as any,
+			{
+				params: { path: { orgName, repoName, codeReviewId: reviewId, reviewerName: reviewer } },
+				body: { status },
+			},
+		);
+
+		if (error) throw error;
+		log(`Updated reviewer "${reviewer}" status to "${status}" on review ${reviewId}`);
+	}
+}
+
+function mapCodeReview(data: any): CodeReviewInfo {
+	return {
+		id: data?.id ?? 0,
+		title: data?.title ?? '',
+		description: data?.description ?? undefined,
+		status: data?.status ?? 'Under review',
+		owner: data?.owner ?? '',
+		assignee: data?.assignee ?? undefined,
+		created: data?.timestamp ?? '',
+		modified: data?.modifiedTimestamp ?? '',
+		targetType: data?.object?.type ?? 'Branch',
+		targetSpec: data?.object?.spec ?? undefined,
+		targetId: data?.object?.targetId ?? 0,
+		commentsCount: data?.commentsCount ?? 0,
+		repositoryName: data?.repositoryName ?? undefined,
+		reviewers: (data?.reviewers ?? []).map((r: any) => ({
+			name: r.reviewer ?? '',
+			status: r.status ?? 'Under review',
+			isGroup: r.isGroup ?? false,
+		})),
+	};
+}
+
+function mapComment(data: any): ReviewCommentInfo {
+	return {
+		id: data?.id ?? 0,
+		owner: data?.owner ?? '',
+		text: data?.commentText ?? '',
+		type: normalizeCommentType(data?.type),
+		timestamp: data?.timestamp ?? '',
+		parentCommentId: data?.parentCommentId || undefined,
+		itemName: data?.itemName ?? undefined,
+		locationSpec: data?.locationSpec ?? undefined,
+	};
+}
+
+function normalizeCommentType(type: string | undefined): ReviewCommentInfo['type'] {
+	const valid = ['Comment', 'Change', 'Question', 'Conversation',
+		'StatusUnderReview', 'StatusReworkRequired', 'StatusReviewed'];
+	return valid.includes(type ?? '') ? type as ReviewCommentInfo['type'] : 'Comment';
+}
+
+function isSystemCommentType(type: string | undefined): boolean {
+	const system = ['Timeline', 'Script', 'Discarded', 'Description',
+		'RequestedReviewer', 'ReRequestedReviewer'];
+	return system.includes(type ?? '');
 }

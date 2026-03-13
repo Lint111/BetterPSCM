@@ -1,5 +1,9 @@
 import { log } from '../util/logger';
-import type { StatusResult, CheckinResult, BranchInfo, ChangesetInfo, ChangesetDiffItem, UpdateResult } from './types';
+import type {
+	StatusResult, CheckinResult, BranchInfo, ChangesetInfo, ChangesetDiffItem,
+	UpdateResult, CodeReviewInfo, ReviewCommentInfo, ReviewerInfo,
+	CreateReviewParams, CreateCommentParams, ReviewStatus,
+} from './types';
 
 /**
  * Contract for all workspace operations.
@@ -24,6 +28,19 @@ export interface PlasticBackend {
 	listChangesets(branchName?: string, limit?: number): Promise<ChangesetInfo[]>;
 	getChangesetDiff(changesetId: number, parentId: number): Promise<ChangesetDiffItem[]>;
 	updateWorkspace(): Promise<UpdateResult>;
+
+	// Phase 4 — code reviews
+	listCodeReviews(filter?: 'all' | 'assignedToMe' | 'createdByMe' | 'pending'): Promise<CodeReviewInfo[]>;
+	getCodeReview(id: number): Promise<CodeReviewInfo>;
+	createCodeReview(params: CreateReviewParams): Promise<CodeReviewInfo>;
+	deleteCodeReview(id: number): Promise<void>;
+	updateCodeReviewStatus(id: number, status: ReviewStatus): Promise<void>;
+	getReviewComments(reviewId: number): Promise<ReviewCommentInfo[]>;
+	addReviewComment(params: CreateCommentParams): Promise<ReviewCommentInfo>;
+	getReviewers(reviewId: number): Promise<ReviewerInfo[]>;
+	addReviewers(reviewId: number, reviewers: string[]): Promise<void>;
+	removeReviewer(reviewId: number, reviewer: string): Promise<void>;
+	updateReviewerStatus(reviewId: number, reviewer: string, status: ReviewStatus): Promise<void>;
 }
 
 let activeBackend: PlasticBackend | undefined;
