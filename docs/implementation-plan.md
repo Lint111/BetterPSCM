@@ -169,15 +169,19 @@ vscode-plastic-scm/
 ### Phase 3a: Branch Tree + Operations ✅ COMPLETE
 **Deliverable**: Activity bar panel with branch explorer, create/switch/delete commands.
 
-1. ✅ `src/views/branchesTreeProvider.ts` — tree with current branch indicator
+1. ✅ `src/views/branchesTreeProvider.ts` — tree with current branch indicator, click-to-switch
 2. ✅ `src/commands/branch.ts` — create/switch/delete via QuickPick/InputBox
 3. ✅ Branch methods in both `CliBackend` and `RestBackend`
+4. ✅ `media/plastic-scm.svg` — activity bar icon (required for panel visibility)
+5. ✅ Status bar branch name click → switch branch QuickPick
 
 ### Test Suite ✅ COMPLETE
 **Deliverable**: 176 unit tests covering CLI backend, staging, resource states, decorations, auth.
 
 ### Bug Fixes
 - ✅ Compound cm status type codes (e.g. "AD LD") — parser only consumed first 2-char code, leaving second code as path prefix → corrupted URIs
+- ✅ Missing activity bar icon (`media/plastic-scm.svg`) — entire branch panel was invisible
+- ✅ Removed unimplemented stub views (changesets, code reviews, labels) that showed as empty panels
 
 ### Phase 3b: Changeset History Tree
 **Deliverable**: Changeset history in activity bar panel.
