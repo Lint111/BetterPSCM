@@ -1,6 +1,6 @@
 import { getBackend } from './backend';
 import { TtlCache } from '../util/cache';
-import type { StatusResult, CheckinResult, BranchInfo, ChangesetInfo, ChangesetDiffItem } from './types';
+import type { StatusResult, CheckinResult, BranchInfo, ChangesetInfo, ChangesetDiffItem, UpdateResult } from './types';
 
 // Re-export for consumers that import from workspace.ts
 export type { StatusResult as WorkspaceStatusResult } from './types';
@@ -81,6 +81,16 @@ export async function switchBranch(branchName: string): Promise<void> {
 	await getBackend().switchBranch(branchName);
 	branchCache.clear();
 	branchListCache.clear();
+}
+
+/**
+ * Update workspace to latest. Invalidates all caches.
+ */
+export async function updateWorkspace(): Promise<UpdateResult> {
+	const result = await getBackend().updateWorkspace();
+	branchCache.clear();
+	branchListCache.clear();
+	return result;
 }
 
 /**

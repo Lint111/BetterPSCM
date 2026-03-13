@@ -10,6 +10,7 @@ import { registerStagingCommands } from './commands/staging';
 import { registerCheckinCommands } from './commands/checkin';
 import { registerGeneralCommands } from './commands/general';
 import { registerBranchCommands } from './commands/branch';
+import { registerUpdateCommands } from './commands/update';
 import { registerAuthCommands } from './commands/auth';
 import { HistoryGraphViewProvider } from './views/historyGraphPanel';
 import { COMMANDS, SETTINGS } from './constants';
@@ -195,6 +196,7 @@ async function setupProvider(context: vscode.ExtensionContext): Promise<void> {
 	registerCheckinCommands(context, provider);
 	registerGeneralCommands(context, provider);
 	registerBranchCommands(context, provider);
+	registerUpdateCommands(context, provider);
 
 	// Register history graph in the Source Control sidebar
 	const historyGraphProvider = new HistoryGraphViewProvider(context.extensionUri);
@@ -307,7 +309,6 @@ function registerStubCommands(context: vscode.ExtensionContext): void {
 		COMMANDS.createCodeReview,
 		COMMANDS.openCodeReview,
 		COMMANDS.createLabel,
-		COMMANDS.update,
 		COMMANDS.showFileHistory,
 		COMMANDS.annotateFile,
 	];

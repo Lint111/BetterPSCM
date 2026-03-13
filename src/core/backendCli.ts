@@ -11,6 +11,7 @@ import type {
 	BranchInfo,
 	ChangesetInfo,
 	ChangesetDiffItem,
+	UpdateResult,
 } from './types';
 
 const CM_CHANGE_TYPE_MAP: Record<string, StatusChangeType> = {
@@ -328,6 +329,36 @@ export class CliBackend implements PlasticBackend {
 
 		const lines = result.stdout.split(/\r?\n/).filter(l => l.length > 0);
 		return lines.map(parseChangesetLineNoParent).filter((c): c is ChangesetInfo => c !== undefined);
+	}
+
+	async updateWorkspace(): Promise<UpdateResult> {
+		const result = await execCm(['update', '--machinereadable']);
+		if (result.exitCode !== 0) {
+			const output = result.stderr || result.stdout;
+			// Check for conflicts
+			if (output.includes('conflict') || output.includes('CONFLICT')) {
+				const conflicts = output.split(/\r?\n/)
+					.filter(l => l.toLowerCase().includes('conflict'))
+					.map(l => l.trim());
+				return { updatedFiles: 0, conflicts };
+			}
+			throw new Error(`cm update failed (exit ${result.exitCode}): ${output}`);
+		}
+
+		// Count updated files from output
+		const lines = result.stdout.split(/\r?\n/).filter(l => l.trim().length > 0);
+		const conflicts: string[] = [];
+		let updatedFiles = 0;
+		for (const line of lines) {
+			if (line.toLowerCase().includes('conflict')) {
+				conflicts.push(line.trim());
+			} else if (!line.startsWith('STATUS ') && !line.startsWith('Total ')) {
+				updatedFiles++;
+			}
+		}
+
+		log(`Workspace updated: ${updatedFiles} files, ${conflicts.length} conflicts`);
+		return { updatedFiles, conflicts };
 	}
 
 	async getChangesetDiff(changesetId: number, parentId: number): Promise<ChangesetDiffItem[]> {

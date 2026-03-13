@@ -1,7 +1,7 @@
 import { getClient, getOrgName, getWorkspaceGuid, getRepoName } from '../api/client';
 import { log } from '../util/logger';
 import type { PlasticBackend } from './backend';
-import type { StatusResult, CheckinResult, NormalizedChange, BranchInfo, ChangesetInfo, ChangesetDiffItem } from './types';
+import type { StatusResult, CheckinResult, NormalizedChange, BranchInfo, ChangesetInfo, ChangesetDiffItem, UpdateResult } from './types';
 import type { CheckInRequest } from './types';
 import { normalizeChange } from './types';
 
@@ -216,6 +216,28 @@ export class RestBackend implements PlasticBackend {
 			comment: c.comment ?? undefined,
 			parent: c.parentChangesetId ?? 0,
 		}));
+	}
+
+	async updateWorkspace(): Promise<UpdateResult> {
+		const client = getClient();
+		const orgName = getOrgName();
+		const workspaceGuid = getWorkspaceGuid();
+
+		const { data, error } = await client.POST(
+			'/api/v1/organizations/{organizationName}/workspaces/{workspaceGuid}/update',
+			{
+				params: { path: { organizationName: orgName, workspaceGuid } },
+				body: { recursive: true, ignoreCase: false, items: [], fileConflicts: [] } as any,
+			},
+		);
+
+		if (error) throw error;
+
+		const result = data as any;
+		const conflicts = (result?.fileConflicts ?? []).map((c: any) => c.path ?? String(c));
+
+		log(`Workspace updated via REST API`);
+		return { updatedFiles: 0, conflicts };
 	}
 
 	async getChangesetDiff(changesetId: number, parentId: number): Promise<ChangesetDiffItem[]> {

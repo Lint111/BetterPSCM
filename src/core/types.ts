@@ -89,6 +89,11 @@ export interface ChangesetDiffItem {
 	type: 'added' | 'changed' | 'deleted' | 'moved';
 }
 
+export interface UpdateResult {
+	updatedFiles: number;
+	conflicts: string[];
+}
+
 export class NotSupportedError extends Error {
 	constructor(operation: string, backend: string) {
 		super(`"${operation}" is not supported by the ${backend} backend`);
