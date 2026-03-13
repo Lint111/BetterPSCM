@@ -1,5 +1,5 @@
 import { getBackend } from './backend';
-import type { StatusResult, CheckinResult, BranchInfo } from './types';
+import type { StatusResult, CheckinResult, BranchInfo, ChangesetInfo } from './types';
 
 // Re-export for consumers that import from workspace.ts
 export type { StatusResult as WorkspaceStatusResult } from './types';
@@ -61,4 +61,11 @@ export async function deleteBranch(branchId: number): Promise<void> {
  */
 export async function switchBranch(branchName: string): Promise<void> {
 	return getBackend().switchBranch(branchName);
+}
+
+/**
+ * List changesets, optionally filtered by branch.
+ */
+export async function listChangesets(branchName?: string, limit?: number): Promise<ChangesetInfo[]> {
+	return getBackend().listChangesets(branchName, limit);
 }

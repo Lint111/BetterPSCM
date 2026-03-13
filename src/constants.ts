@@ -31,6 +31,7 @@ export const COMMANDS = {
 	update: 'plasticScm.update',
 	showFileHistory: 'plasticScm.showFileHistory',
 	annotateFile: 'plasticScm.annotateFile',
+	showHistoryGraph: 'plasticScm.showHistoryGraph',
 	login: 'plasticScm.login',
 	logout: 'plasticScm.logout',
 } as const;

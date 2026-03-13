@@ -271,8 +271,8 @@ describe('CliBackend', () => {
 		it('parses branch lines from cm find branch', async () => {
 			mockExecCm.mockResolvedValue({
 				stdout: [
-					'/main#1#alice#2026-01-01#initial#True',
-					'/main/feature#2#bob#2026-01-02#wip#False',
+					'/main#1#alice#2026-01-01#initial',
+					'/main/feature#2#bob#2026-01-02#wip',
 				].join('\n'),
 				stderr: '',
 				exitCode: 0,
@@ -302,7 +302,7 @@ describe('CliBackend', () => {
 
 		it('skips malformed lines', async () => {
 			mockExecCm.mockResolvedValue({
-				stdout: '/main#1#alice#2026-01-01#initial#True\nbadline\n',
+				stdout: '/main#1#alice#2026-01-01#initial\nbadline\n',
 				stderr: '',
 				exitCode: 0,
 			});

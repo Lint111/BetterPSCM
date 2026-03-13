@@ -7,6 +7,7 @@ import type {
 	NormalizedChange,
 	StatusChangeType,
 	BranchInfo,
+	ChangesetInfo,
 } from './types';
 
 const CM_CHANGE_TYPE_MAP: Record<string, StatusChangeType> = {
@@ -104,7 +105,7 @@ export class CliBackend implements PlasticBackend {
 	async listBranches(): Promise<BranchInfo[]> {
 		const result = await execCm([
 			'find', 'branch',
-			'--format={name}#{id}#{owner}#{date}#{comment}#{ismainbranch}',
+			'--format={name}#{id}#{owner}#{date}#{comment}',
 			'--nototal',
 		]);
 		if (result.exitCode !== 0) {
@@ -151,19 +152,104 @@ export class CliBackend implements PlasticBackend {
 		}
 		log(`Switched to branch "${branchName}"`);
 	}
+
+	async listChangesets(branchName?: string, limit?: number): Promise<ChangesetInfo[]> {
+		const query = buildChangesetQuery(branchName, limit);
+		const args = [
+			'find', 'changeset',
+			query,
+			'--format={changesetid}#{branch}#{owner}#{date}#{comment}#{parent}',
+			'--nototal',
+		];
+		const result = await execCm(args);
+		if (result.exitCode !== 0) {
+			// If {parent} field is unsupported, fall back without it
+			if (result.stderr?.includes('parent') || result.stdout?.includes('parent')) {
+				return this.listChangesetsWithoutParent(branchName, limit);
+			}
+			throw new Error(`cm find changeset failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
+		}
+
+		const lines = result.stdout.split(/\r?\n/).filter(l => l.length > 0);
+		return lines.map(parseChangesetLine).filter((c): c is ChangesetInfo => c !== undefined);
+	}
+
+	private async listChangesetsWithoutParent(branchName?: string, limit?: number): Promise<ChangesetInfo[]> {
+		const query = buildChangesetQuery(branchName, limit);
+		const args = [
+			'find', 'changeset',
+			query,
+			'--format={changesetid}#{branch}#{owner}#{date}#{comment}',
+			'--nototal',
+		];
+		const result = await execCm(args);
+		if (result.exitCode !== 0) {
+			throw new Error(`cm find changeset failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
+		}
+
+		const lines = result.stdout.split(/\r?\n/).filter(l => l.length > 0);
+		return lines.map(parseChangesetLineNoParent).filter((c): c is ChangesetInfo => c !== undefined);
+	}
+}
+
+function buildChangesetQuery(branchName?: string, limit?: number): string {
+	const parts: string[] = [];
+	if (branchName) {
+		parts.push(`where branch='${branchName}'`);
+	}
+	parts.push('order by changesetid desc');
+	if (limit) {
+		parts.push(`limit ${limit}`);
+	}
+	return parts.join(' ');
+}
+
+function parseChangesetLine(line: string): ChangesetInfo | undefined {
+	const parts = line.split('#');
+	if (parts.length < 6) return undefined;
+
+	const id = parseInt(parts[0], 10);
+	if (isNaN(id)) return undefined;
+
+	return {
+		id,
+		branch: parts[1],
+		owner: parts[2],
+		date: parts[3],
+		comment: parts[4] || undefined,
+		parent: parseInt(parts[5], 10) || 0,
+	};
+}
+
+function parseChangesetLineNoParent(line: string): ChangesetInfo | undefined {
+	const parts = line.split('#');
+	if (parts.length < 5) return undefined;
+
+	const id = parseInt(parts[0], 10);
+	if (isNaN(id)) return undefined;
+
+	return {
+		id,
+		branch: parts[1],
+		owner: parts[2],
+		date: parts[3],
+		comment: parts[4] || undefined,
+		parent: id > 0 ? id - 1 : 0, // best-guess sequential parent
+	};
 }
 
 function parseBranchLine(line: string): BranchInfo | undefined {
 	const parts = line.split('#');
-	if (parts.length < 6) return undefined;
+	if (parts.length < 5) return undefined;
 
+	const name = parts[0];
 	return {
-		name: parts[0],
+		name,
 		id: parseInt(parts[1], 10) || 0,
 		owner: parts[2],
 		date: parts[3],
 		comment: parts[4] || undefined,
-		isMain: parts[5] === 'True',
+		isMain: name === '/main' || name.endsWith('/main'),
 	};
 }
 

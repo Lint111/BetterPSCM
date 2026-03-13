@@ -1,7 +1,7 @@
 import { getClient, getOrgName, getWorkspaceGuid, getRepoName } from '../api/client';
 import { log } from '../util/logger';
 import type { PlasticBackend } from './backend';
-import type { StatusResult, CheckinResult, NormalizedChange, BranchInfo } from './types';
+import type { StatusResult, CheckinResult, NormalizedChange, BranchInfo, ChangesetInfo } from './types';
 import type { CheckInRequest } from './types';
 import { normalizeChange } from './types';
 
@@ -186,5 +186,35 @@ export class RestBackend implements PlasticBackend {
 
 		if (error) throw error;
 		log(`Switched to branch "${branchName}"`);
+	}
+
+	async listChangesets(branchName?: string, limit?: number): Promise<ChangesetInfo[]> {
+		const client = getClient();
+		const orgName = getOrgName();
+		const repoName = getRepoName();
+
+		const params: any = { path: { orgName, repoName } };
+		if (branchName) {
+			params.query = { branchName, ...(limit ? { limit } : {}) };
+		} else if (limit) {
+			params.query = { limit };
+		}
+
+		const { data, error } = await client.GET(
+			'/api/v1/organizations/{orgName}/repos/{repoName}/changesets' as any,
+			{ params },
+		);
+
+		if (error) throw error;
+
+		const changesets = (data as any[]) ?? [];
+		return changesets.map((c: any) => ({
+			id: c.changesetId ?? c.id ?? 0,
+			branch: c.branch ?? '',
+			owner: c.owner ?? '',
+			date: c.date ?? '',
+			comment: c.comment ?? undefined,
+			parent: c.parentChangesetId ?? 0,
+		}));
 	}
 }

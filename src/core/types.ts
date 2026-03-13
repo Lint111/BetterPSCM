@@ -74,6 +74,16 @@ export interface BranchInfo {
 	changesetsCount?: number;
 }
 
+export interface ChangesetInfo {
+	id: number;
+	branch: string;
+	owner: string;
+	date: string;
+	comment?: string;
+	parent: number;
+	guid?: string;
+}
+
 export class NotSupportedError extends Error {
 	constructor(operation: string, backend: string) {
 		super(`"${operation}" is not supported by the ${backend} backend`);

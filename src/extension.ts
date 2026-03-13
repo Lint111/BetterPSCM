@@ -12,6 +12,7 @@ import { registerGeneralCommands } from './commands/general';
 import { registerBranchCommands } from './commands/branch';
 import { registerAuthCommands } from './commands/auth';
 import { BranchesTreeProvider } from './views/branchesTreeProvider';
+import { HistoryGraphPanel } from './views/historyGraphPanel';
 import { COMMANDS, SETTINGS } from './constants';
 import { detectWorkspace, detectClientConfig, detectCachedToken, hasPlasticWorkspace } from './util/plasticDetector';
 import { detectCm, setCmWorkspaceRoot, isCmAvailable } from './core/cmCli';
@@ -201,6 +202,13 @@ async function setupProvider(context: vscode.ExtensionContext): Promise<void> {
 
 	// Register branch commands (replaces stubs)
 	registerBranchCommands(context, provider, branchTree);
+
+	// Register history graph command
+	context.subscriptions.push(
+		vscode.commands.registerCommand(COMMANDS.showHistoryGraph, () => {
+			HistoryGraphPanel.show(context.extensionUri);
+		}),
+	);
 
 	// Create status bar
 	const statusBar = disposables.add(new PlasticStatusBar(provider));
