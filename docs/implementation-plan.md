@@ -147,23 +147,44 @@ vscode-plastic-scm/
 
 **Build**: 58.6kb bundle, 0 type errors, compiles in 11ms.
 
-### Phase 2: Diffs + Quick Diff
-**Deliverable**: Click a file → see diff. Gutter decorations for inline changes.
+### Phase 2: Diffs + Quick Diff + Branch Detection ✅ COMPLETE
+**Deliverable**: Click a file → see diff. Gutter decorations for inline changes. Branch polling.
 
-1. `src/scm/quickDiffProvider.ts` — Complete implementation: map workspace file URIs to plastic: URIs using revision info from StatusResponse
-2. `src/commands/diff.ts` — open side-by-side diff via `vscode.commands.executeCommand('vscode.diff', ...)`
-3. Binary file detection (skip diff for non-text DataType)
-4. Wire `openChange` command to actually open diff instead of just the file
+1. ✅ `src/scm/quickDiffProvider.ts` — `provideOriginalResource()` with change map, CLI uses `cm cat serverpath:/{path}`
+2. ✅ `src/commands/general.ts` — `openChange` dispatches by changeType (diff vs open file), handles ResourceState/URI/TabInput args
+3. ✅ `src/scm/resourceStateFactory.ts` — passes full `NormalizedChange` in command arguments
+4. ✅ `src/scm/plasticScmProvider.ts` — branch polling in `pollStatus()`, `onDidChangeBranch` event
+5. ✅ `src/statusBar/plasticStatusBar.ts` — subscribes to `onDidChangeBranch`
+6. ✅ `package.json` — openFile in diff editor title menu, openChange inline
 
-### Phase 3: Branch + Changeset Trees
-**Deliverable**: Activity bar panel with branch explorer and changeset history.
+### Backend Interface Refactor ✅ COMPLETE
+**Deliverable**: `PlasticBackend` interface with `CliBackend` and `RestBackend` implementations.
 
-1. `src/core/branches.ts` — list, create, delete branches via v1+v2 endpoints
-2. `src/views/branchesTreeProvider.ts` — tree with current branch indicator, code review badges
-3. `src/commands/branch.ts` — create/switch/delete via QuickPick
-4. `src/core/changesets.ts` — list changesets filtered by branch
-5. `src/views/changesetsTreeProvider.ts` — expandable tree showing diff files per changeset
-6. `src/commands/update.ts` — workspace update with conflict handling via `POST /workspaces/{guid}/update`
+1. ✅ `src/core/backend.ts` — interface + singleton
+2. ✅ `src/core/backendCli.ts` — cm CLI backend (status, checkin, branches, file content)
+3. ✅ `src/core/backendRest.ts` — REST API backend
+4. ✅ `src/core/cmCli.ts` — cm binary detection + execFile wrapper
+5. ✅ `src/extension.ts` — auto-detect backend (REST with CLI fallback)
+
+### Phase 3a: Branch Tree + Operations ✅ COMPLETE
+**Deliverable**: Activity bar panel with branch explorer, create/switch/delete commands.
+
+1. ✅ `src/views/branchesTreeProvider.ts` — tree with current branch indicator
+2. ✅ `src/commands/branch.ts` — create/switch/delete via QuickPick/InputBox
+3. ✅ Branch methods in both `CliBackend` and `RestBackend`
+
+### Test Suite ✅ COMPLETE
+**Deliverable**: 176 unit tests covering CLI backend, staging, resource states, decorations, auth.
+
+### Bug Fixes
+- ✅ Compound cm status type codes (e.g. "AD LD") — parser only consumed first 2-char code, leaving second code as path prefix → corrupted URIs
+
+### Phase 3b: Changeset History Tree
+**Deliverable**: Changeset history in activity bar panel.
+
+1. `src/core/changesets.ts` — list changesets filtered by branch
+2. `src/views/changesetsTreeProvider.ts` — expandable tree showing diff files per changeset
+3. `src/commands/update.ts` — workspace update with conflict handling via `POST /workspaces/{guid}/update`
 
 ### Phase 4: Code Reviews
 **Deliverable**: Full review lifecycle in VS Code.
