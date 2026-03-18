@@ -19,6 +19,9 @@ import { CliBackend } from '../core/backendCli';
 import { setBackend, getBackend } from '../core/backend';
 import type { PlasticBackend } from '../core/backend';
 import { createBackup, listBackups, getBackupManifest, restoreBackup } from './backup';
+import { PlasticService } from '../core/service';
+import { InMemoryStagingStore } from '../core/stagingStore';
+import { BULK_OPERATION_THRESHOLD, UNITY_CRITICAL_EXTENSIONS } from '../core/safety';
 
 // ── Standalone logger (stderr, no vscode) ────────────────────────────
 
@@ -48,14 +51,20 @@ const server = new McpServer({
 	version: '0.1.0',
 });
 
-// ── Staging state (in-memory, mirrors the extension's StagingManager) ──
-
-const stagedPaths = new Set<string>();
-
 // ── Helper ───────────────────────────────────────────────────────────
 
 function backend(): PlasticBackend {
 	return getBackend();
+}
+
+const store = new InMemoryStagingStore();
+let service: PlasticService;
+
+function getService(): PlasticService {
+	if (!service) {
+		service = new PlasticService(backend(), store);
+	}
+	return service;
 }
 
 function textResult(text: string) {
@@ -83,14 +92,6 @@ function audit(tool: string, action: string, details?: Record<string, unknown>) 
 	process.stderr.write(`[AUDIT] ${JSON.stringify(entry)}\n`);
 }
 
-// ── Safety constants ─────────────────────────────────────────────────
-
-/** Maximum files that can be reverted/undone in a single operation without explicit confirmation. */
-const BULK_OPERATION_THRESHOLD = 20;
-
-/** File extensions that are critical for Unity reference integrity. */
-const UNITY_CRITICAL_EXTENSIONS = ['.meta', '.unity', '.prefab', '.asset', '.asmdef', '.asmref'];
-
 // ── Tools ────────────────────────────────────────────────────────────
 
 // 1. plastic_status — List pending workspace changes
@@ -112,7 +113,7 @@ server.registerTool(
 			const changes = result.changes.map(c => ({
 				path: c.path,
 				type: c.changeType,
-				staged: stagedPaths.has(c.path),
+				staged: getService().isStaged(c.path),
 				// 'checkedOut' (CO) means the file was opened for editing but may have no actual modifications.
 				// This is distinct from 'changed' (CH) which indicates real content differences.
 				possiblyStale: c.changeType === 'checkedOut',
@@ -136,42 +137,31 @@ server.registerTool(
 	},
 	async ({ paths }) => {
 		try {
-			// Fetch current pending changes to resolve directory prefixes
+			// Keep directory-prefix resolution in MCP layer (stage handler has this extra UX)
 			const status = await backend().getStatus(true);
 			const pendingPaths = status.changes.map(c => c.path);
-			let stagedCount = 0;
+			const resolved: string[] = [];
 
 			for (const p of paths) {
-				// Normalize separators for matching
 				const normalized = p.replace(/\\/g, '/').replace(/\/$/, '');
-
-				// Check if this is an exact file match
 				if (pendingPaths.includes(normalized) || pendingPaths.includes(p)) {
-					stagedPaths.add(pendingPaths.includes(normalized) ? normalized : p);
-					stagedCount++;
+					resolved.push(pendingPaths.includes(normalized) ? normalized : p);
 					continue;
 				}
-
-				// Treat as directory prefix — match all pending files under this path
 				const prefix = normalized.endsWith('/') ? normalized : normalized + '/';
 				let matchedAny = false;
 				for (const pending of pendingPaths) {
 					const normalizedPending = pending.replace(/\\/g, '/');
 					if (normalizedPending.startsWith(prefix) || normalizedPending.toLowerCase().startsWith(prefix.toLowerCase())) {
-						stagedPaths.add(pending);
-						stagedCount++;
+						resolved.push(pending);
 						matchedAny = true;
 					}
 				}
-
-				if (!matchedAny) {
-					// No match as file or directory — add as-is (user may know what they're doing)
-					stagedPaths.add(p);
-					stagedCount++;
-				}
+				if (!matchedAny) resolved.push(p);
 			}
 
-			return textResult(`Staged ${stagedCount} file(s). Total staged: ${stagedPaths.size}`);
+			await getService().stage(resolved, { autoMeta: false });
+			return textResult(`Staged ${resolved.length} file(s). Total staged: ${getService().getStagedPaths().length}`);
 		} catch (err) {
 			return errorResult(err instanceof Error ? err.message : String(err));
 		}
@@ -189,8 +179,8 @@ server.registerTool(
 		}),
 	},
 	async ({ paths }) => {
-		for (const p of paths) stagedPaths.delete(p);
-		return textResult(`Unstaged ${paths.length} file(s). Total staged: ${stagedPaths.size}`);
+		await getService().unstage(paths);
+		return textResult(`Unstaged ${paths.length} file(s). Total staged: ${getService().getStagedPaths().length}`);
 	},
 );
 
@@ -214,102 +204,31 @@ SMART HANDLING:
 	},
 	async ({ comment, all, exclude_paths, auto_add_private }) => {
 		try {
-			const shouldAutoAdd = auto_add_private !== false; // default true
-			audit('plastic_checkin', 'invoked', { all, excludeCount: exclude_paths?.length ?? 0, auto_add_private: shouldAutoAdd });
-
-			let paths: string[];
-			// Fetch with showPrivate=true so we can see PR files for auto-add
-			const status = await backend().getStatus(true);
-			const changeMap = new Map(status.changes.map(c => [c.path, c.changeType]));
-
-			if (all) {
-				paths = status.changes.filter(c => c.dataType !== 'Directory').map(c => c.path);
-			} else if (stagedPaths.size > 0) {
-				paths = [...stagedPaths];
-			} else {
-				return errorResult('No files staged. Use plastic_stage first, or set all=true.');
-			}
-
-			// Apply exclusions
-			if (exclude_paths && exclude_paths.length > 0) {
-				const excludeSet = new Set(exclude_paths.map(p => p.replace(/\\/g, '/')));
-				paths = paths.filter(p => !excludeSet.has(p.replace(/\\/g, '/')));
-			}
-
-			// Auto-add private files to source control before checkin
-			const autoAddedPaths: string[] = [];
-			if (shouldAutoAdd) {
-				const privatePaths = paths.filter(p => {
-					const changeType = changeMap.get(p) || changeMap.get(p.replace(/\\/g, '/'));
-					return changeType === 'private';
-				});
-				if (privatePaths.length > 0) {
-					// Also add companion .meta files that may not be in the staged set
-					const metaToAdd: string[] = [];
-					for (const filePath of privatePaths) {
-						const metaPath = filePath + '.meta';
-						const normalizedMeta = metaPath.replace(/\\/g, '/');
-						const metaChange = changeMap.get(metaPath) || changeMap.get(normalizedMeta);
-						if (metaChange === 'private' && !paths.includes(metaPath) && !paths.includes(normalizedMeta)) {
-							metaToAdd.push(changeMap.has(metaPath) ? metaPath : normalizedMeta);
-						}
-					}
-					// Add the .meta files to the paths list too
-					paths.push(...metaToAdd);
-
-					const allToAdd = [...privatePaths, ...metaToAdd];
-					audit('plastic_checkin', 'auto_adding', { count: allToAdd.length });
-					await backend().addToSourceControl(allToAdd);
-					autoAddedPaths.push(...allToAdd);
-				}
-			}
-
-			// Pre-flight safety: auto-filter out checked-out (CO) files that are likely stale.
-			// CO files have no content changes — only AD, CH, DE, MV files have real modifications.
-			// This prevents the common failure where cm checkin rejects unchanged files.
-			const stalePaths: string[] = [];
-			paths = paths.filter(p => {
-				const changeType = changeMap.get(p) || changeMap.get(p.replace(/\\/g, '/'));
-				// After auto-add, private files are now AD — don't filter them
-				if (autoAddedPaths.includes(p)) return true;
-				if (changeType === 'checkedOut') {
-					stalePaths.push(p);
-					return false;
-				}
-				return true;
+			audit('plastic_checkin', 'invoked', { all, excludeCount: exclude_paths?.length ?? 0, auto_add_private });
+			const result = await getService().checkin({
+				comment,
+				all,
+				excludePaths: exclude_paths,
+				autoAddPrivate: auto_add_private,
 			});
-
-			if (paths.length === 0) {
-				return errorResult(
-					'No files with real changes to check in. ' +
-					(stalePaths.length > 0
-						? `${stalePaths.length} stale checkout(s) were auto-excluded. Use plastic_clean_stale to clear them.`
-						: 'All files were excluded.'),
-				);
-			}
-
-			const result = await backend().checkin(paths, comment);
-			stagedPaths.clear();
 
 			audit('plastic_checkin', 'completed', {
 				changesetId: result.changesetId,
-				filesCheckedIn: paths.length,
-				staleExcluded: stalePaths.length,
-				autoAdded: autoAddedPaths.length,
+				autoAdded: result.autoAdded.length,
+				autoExcluded: result.autoExcluded.length,
 			});
 
 			const response: Record<string, unknown> = {
 				changesetId: result.changesetId,
 				branch: result.branchName,
-				filesCheckedIn: paths.length,
 			};
-			if (autoAddedPaths.length > 0) {
-				response.autoAddedToSourceControl = autoAddedPaths;
-				response.autoAddNote = `${autoAddedPaths.length} private file(s) were automatically added to source control before checkin.`;
+			if (result.autoAdded.length > 0) {
+				response.autoAddedToSourceControl = result.autoAdded;
+				response.autoAddNote = `${result.autoAdded.length} private file(s) were automatically added to source control before checkin.`;
 			}
-			if (stalePaths.length > 0) {
-				response.autoExcludedStale = stalePaths;
-				response.note = `${stalePaths.length} stale checkout(s) were auto-excluded. Use plastic_clean_stale to clear them.`;
+			if (result.autoExcluded.length > 0) {
+				response.autoExcludedStale = result.autoExcluded;
+				response.note = `${result.autoExcluded.length} unchanged item(s) were auto-excluded. Use plastic_clean_stale to clear stale checkouts.`;
 			}
 			return jsonResult(response);
 		} catch (err) {
@@ -555,73 +474,15 @@ Supports exact file paths and directory prefixes (e.g. "Assets/Scripts/AbilityCh
 	},
 	async ({ paths, auto_add_meta }) => {
 		try {
-			const includeMeta = auto_add_meta !== false; // default true
-			audit('plastic_add', 'invoked', { pathCount: paths.length, auto_add_meta: includeMeta });
-
-			// Fetch current status to find private files
-			const status = await backend().getStatus(true);
-			const privateFiles = status.changes
-				.filter(c => c.changeType === 'private' && c.dataType !== 'Directory')
-				.map(c => c.path);
-
-			const toAdd: Set<string> = new Set();
-
-			for (const p of paths) {
-				const normalized = p.replace(/\\/g, '/').replace(/\/$/, '');
-
-				// Exact match
-				const exactMatch = privateFiles.find(f =>
-					f === normalized || f === p || f.replace(/\\/g, '/') === normalized,
-				);
-				if (exactMatch) {
-					toAdd.add(exactMatch);
-					continue;
-				}
-
-				// Directory prefix match
-				const prefix = normalized.endsWith('/') ? normalized : normalized + '/';
-				let matchedAny = false;
-				for (const priv of privateFiles) {
-					const normalizedPriv = priv.replace(/\\/g, '/');
-					if (normalizedPriv.startsWith(prefix) || normalizedPriv.toLowerCase().startsWith(prefix.toLowerCase())) {
-						toAdd.add(priv);
-						matchedAny = true;
-					}
-				}
-
-				if (!matchedAny) {
-					// Not found in private files — add path as-is (cm add will report error if invalid)
-					toAdd.add(p);
-				}
-			}
-
-			// Auto-add companion .meta files
-			if (includeMeta) {
-				const metaToAdd: string[] = [];
-				for (const filePath of toAdd) {
-					const metaPath = filePath + '.meta';
-					const normalizedMeta = metaPath.replace(/\\/g, '/');
-					// Check if the meta file exists as private
-					const metaExists = privateFiles.find(f =>
-						f === metaPath || f.replace(/\\/g, '/') === normalizedMeta,
-					);
-					if (metaExists && !toAdd.has(metaExists)) {
-						metaToAdd.push(metaExists);
-					}
-				}
-				for (const m of metaToAdd) toAdd.add(m);
-			}
-
-			if (toAdd.size === 0) {
+			audit('plastic_add', 'invoked', { pathCount: paths.length, auto_add_meta });
+			const added = await getService().addToSourceControl(paths, { autoMeta: auto_add_meta !== false });
+			if (added.length === 0) {
 				return errorResult(
 					'No private (PR) files matched the given paths. ' +
 					'Files must be PR (untracked) to be added. Use plastic_status to see current file states.',
 				);
 			}
-
-			const added = await backend().addToSourceControl([...toAdd]);
 			audit('plastic_add', 'completed', { addedCount: added.length });
-
 			return jsonResult({
 				addedFiles: added.length,
 				paths: added,
@@ -768,7 +629,7 @@ To simply un-stage files without discarding changes, use plastic_unstage.`,
 
 			// Execute
 			const reverted = safePaths.length > 0 ? await backend().undoCheckout(safePaths) : [];
-			for (const p of reverted) stagedPaths.delete(p);
+			store.remove(reverted);
 			audit('plastic_undo_checkout', 'completed', {
 				revertedCount: reverted.length,
 				criticalCount: criticalFiles.length,
@@ -891,7 +752,7 @@ Run this before checkin to avoid commit failures from unchanged files.`,
 			}
 
 			const reverted = await backend().undoCheckout(staleFiles);
-			for (const p of reverted) stagedPaths.delete(p);
+			store.remove(reverted);
 
 			// Flag any Unity-critical files that were reverted
 			const criticalReverted = reverted.filter(p =>
@@ -1017,12 +878,12 @@ server.registerResource(
 			const changes = status.changes.map(c => ({
 				path: c.path,
 				type: c.changeType,
-				staged: stagedPaths.has(c.path),
+				staged: getService().isStaged(c.path),
 			}));
 			return {
 				contents: [{
 					uri: uri.href,
-					text: JSON.stringify({ branch, changes, stagedCount: stagedPaths.size }, null, 2),
+					text: JSON.stringify({ branch, changes, stagedCount: getService().getStagedPaths().length }, null, 2),
 				}],
 			};
 		} catch {
@@ -1062,7 +923,7 @@ server.registerResource(
 	async (uri) => ({
 		contents: [{
 			uri: uri.href,
-			text: JSON.stringify([...stagedPaths], null, 2),
+			text: JSON.stringify(getService().getStagedPaths(), null, 2),
 		}],
 	}),
 );
@@ -1082,7 +943,7 @@ server.registerPrompt(
 	},
 	async ({ style }) => {
 		const status = await backend().getStatus(false);
-		const staged = status.changes.filter(c => stagedPaths.has(c.path));
+		const staged = status.changes.filter(c => getService().isStaged(c.path));
 		const changeList = staged.length > 0
 			? staged.map(c => `- ${c.changeType}: ${c.path}`).join('\n')
 			: status.changes.map(c => `- ${c.changeType}: ${c.path}`).join('\n');
