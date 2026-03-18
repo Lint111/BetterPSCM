@@ -517,7 +517,18 @@ export class CliBackend implements PlasticBackend {
 		return parseReviewCommentXml(result.stdout);
 	}
 	async addReviewComment(): Promise<ReviewCommentInfo> { throw new NotSupportedError('addReviewComment', this.name); }
-	async getReviewers(): Promise<ReviewerInfo[]> { throw new NotSupportedError('getReviewers', this.name); }
+	async getReviewers(reviewId: number): Promise<ReviewerInfo[]> {
+		const result = await execCm([
+			'find', 'reviewcomment',
+			`where reviewid=${reviewId}`,
+			'--xml',
+			'--nototal',
+		]);
+		if (result.exitCode !== 0) {
+			throw new Error(`cm find reviewcomment failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
+		}
+		return extractReviewersFromComments(result.stdout);
+	}
 	async addReviewers(): Promise<void> { throw new NotSupportedError('addReviewers', this.name); }
 	async removeReviewer(): Promise<void> { throw new NotSupportedError('removeReviewer', this.name); }
 	async updateReviewerStatus(): Promise<void> { throw new NotSupportedError('updateReviewerStatus', this.name); }
@@ -1016,6 +1027,47 @@ export function parseReviewCommentXml(xml: string): ReviewCommentInfo[] {
 	}
 
 	return comments;
+}
+
+export function extractReviewersFromComments(xml: string): ReviewerInfo[] {
+	const reviewers = new Map<string, ReviewStatus>();
+	const blockRegex = /<REVIEWCOMMENT>([\s\S]*?)<\/REVIEWCOMMENT>/g;
+	let blockMatch: RegExpExecArray | null;
+
+	while ((blockMatch = blockRegex.exec(xml)) !== null) {
+		const block = blockMatch[1];
+
+		const extractField = (tag: string): string => {
+			const m = block.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`));
+			return m ? m[1] : '';
+		};
+
+		const rawComment = extractField('COMMENT');
+		const owner = extractField('OWNER');
+
+		// Track reviewer additions
+		const requestMatch = rawComment.match(/^\[requested-review-from-(.+)\]$/);
+		if (requestMatch) {
+			const user = requestMatch[1];
+			if (!reviewers.has(user)) {
+				reviewers.set(user, 'Under review');
+			}
+			continue;
+		}
+
+		// Track status changes by the comment owner
+		if (rawComment.startsWith('[status-reviewed]')) {
+			reviewers.set(owner, 'Reviewed');
+		} else if (rawComment.startsWith('[status-rework-required]')) {
+			reviewers.set(owner, 'Rework required');
+		}
+	}
+
+	return Array.from(reviewers.entries()).map(([name, status]) => ({
+		name,
+		status,
+		isGroup: false,
+	}));
 }
 
 function parseAnnotateOutput(stdout: string): BlameLine[] {

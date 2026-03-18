@@ -970,6 +970,88 @@ Third line.</COMMENT>
 		});
 	});
 
+	describe('getReviewers', () => {
+		it('extracts reviewers from comment events', async () => {
+			mockExecCm.mockResolvedValue({
+				stdout: `<?xml version="1.0" encoding="utf-8" ?>
+<PLASTICQUERY>
+  <REVIEWCOMMENT>
+    <ID>1</ID><OWNER>owner@test.com</OWNER><DATE>2026-02-17T15:00:00</DATE>
+    <COMMENT>[requested-review-from-theo@test.com]</COMMENT>
+    <REVISIONID>-1</REVISIONID><REVIEWID>43381</REVIEWID><LOCATION>-1</LOCATION>
+  </REVIEWCOMMENT>
+  <REVIEWCOMMENT>
+    <ID>2</ID><OWNER>owner@test.com</OWNER><DATE>2026-02-17T15:01:00</DATE>
+    <COMMENT>[requested-review-from-alice@test.com]</COMMENT>
+    <REVISIONID>-1</REVISIONID><REVIEWID>43381</REVIEWID><LOCATION>-1</LOCATION>
+  </REVIEWCOMMENT>
+  <REVIEWCOMMENT>
+    <ID>3</ID><OWNER>theo@test.com</OWNER><DATE>2026-02-18T10:00:00</DATE>
+    <COMMENT>[status-reviewed]Looks good.</COMMENT>
+    <REVISIONID>-1</REVISIONID><REVIEWID>43381</REVIEWID><LOCATION>-1</LOCATION>
+  </REVIEWCOMMENT>
+</PLASTICQUERY>`,
+				stderr: '',
+				exitCode: 0,
+			});
+
+			const reviewers = await backend.getReviewers(43381);
+			expect(reviewers).toHaveLength(2);
+			const theo = reviewers.find(r => r.name === 'theo@test.com');
+			expect(theo).toBeDefined();
+			expect(theo!.status).toBe('Reviewed');
+			expect(theo!.isGroup).toBe(false);
+			const alice = reviewers.find(r => r.name === 'alice@test.com');
+			expect(alice).toBeDefined();
+			expect(alice!.status).toBe('Under review');
+		});
+
+		it('returns empty array if no reviewer events', async () => {
+			mockExecCm.mockResolvedValue({
+				stdout: '<?xml version="1.0" encoding="utf-8" ?>\n<PLASTICQUERY></PLASTICQUERY>',
+				stderr: '',
+				exitCode: 0,
+			});
+			const reviewers = await backend.getReviewers(43381);
+			expect(reviewers).toEqual([]);
+		});
+
+		it('tracks rework-required status', async () => {
+			mockExecCm.mockResolvedValue({
+				stdout: `<?xml version="1.0" encoding="utf-8" ?>
+<PLASTICQUERY>
+  <REVIEWCOMMENT>
+    <ID>1</ID><OWNER>owner@test.com</OWNER><DATE>2026-02-17T15:00:00</DATE>
+    <COMMENT>[requested-review-from-bob@test.com]</COMMENT>
+    <REVISIONID>-1</REVISIONID><REVIEWID>100</REVIEWID><LOCATION>-1</LOCATION>
+  </REVIEWCOMMENT>
+  <REVIEWCOMMENT>
+    <ID>2</ID><OWNER>bob@test.com</OWNER><DATE>2026-02-18T10:00:00</DATE>
+    <COMMENT>[status-rework-required]Needs changes.</COMMENT>
+    <REVISIONID>-1</REVISIONID><REVIEWID>100</REVIEWID><LOCATION>-1</LOCATION>
+  </REVIEWCOMMENT>
+</PLASTICQUERY>`,
+				stderr: '',
+				exitCode: 0,
+			});
+
+			const reviewers = await backend.getReviewers(100);
+			expect(reviewers).toHaveLength(1);
+			expect(reviewers[0].name).toBe('bob@test.com');
+			expect(reviewers[0].status).toBe('Rework required');
+		});
+
+		it('throws on cm failure', async () => {
+			mockExecCm.mockResolvedValue({
+				stdout: '',
+				stderr: 'error',
+				exitCode: 1,
+			});
+
+			await expect(backend.getReviewers(43381)).rejects.toThrow('cm find reviewcomment failed');
+		});
+	});
+
 	describe('lock methods (CLI)', () => {
 		it('listLockRules throws NotSupportedError', async () => {
 			await expect(backend.listLockRules()).rejects.toThrow('not supported');
