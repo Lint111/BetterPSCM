@@ -490,8 +490,19 @@ export class CliBackend implements PlasticBackend {
 
 		return this.getCodeReview(newId);
 	}
-	async deleteCodeReview(): Promise<void> { throw new NotSupportedError('deleteCodeReview', this.name); }
-	async updateCodeReviewStatus(): Promise<void> { throw new NotSupportedError('updateCodeReviewStatus', this.name); }
+	async deleteCodeReview(id: number): Promise<void> {
+		const result = await execCm(['codereview', '-d', String(id)]);
+		if (result.exitCode !== 0) {
+			throw new Error(`cm codereview delete failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
+		}
+	}
+
+	async updateCodeReviewStatus(id: number, status: ReviewStatus): Promise<void> {
+		const result = await execCm(['codereview', '-e', String(id), `--status=${status}`]);
+		if (result.exitCode !== 0) {
+			throw new Error(`cm codereview edit failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
+		}
+	}
 	async getReviewComments(): Promise<ReviewCommentInfo[]> { throw new NotSupportedError('getReviewComments', this.name); }
 	async addReviewComment(): Promise<ReviewCommentInfo> { throw new NotSupportedError('addReviewComment', this.name); }
 	async getReviewers(): Promise<ReviewerInfo[]> { throw new NotSupportedError('getReviewers', this.name); }

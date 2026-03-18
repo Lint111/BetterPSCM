@@ -777,6 +777,45 @@ describe('CliBackend', () => {
 		});
 	});
 
+	describe('deleteCodeReview', () => {
+		it('calls cm codereview -d with ID', async () => {
+			mockExecCm.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 });
+
+			await backend.deleteCodeReview(43381);
+			expect(mockExecCm).toHaveBeenCalledWith(['codereview', '-d', '43381']);
+		});
+
+		it('throws on failure', async () => {
+			mockExecCm.mockResolvedValue({ stdout: '', stderr: 'not found', exitCode: 1 });
+
+			await expect(backend.deleteCodeReview(99999)).rejects.toThrow('cm codereview delete failed');
+		});
+	});
+
+	describe('updateCodeReviewStatus', () => {
+		it('calls cm codereview -e with status', async () => {
+			mockExecCm.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 });
+
+			await backend.updateCodeReviewStatus(43381, 'Reviewed' as any);
+			const args = mockExecCm.mock.calls[0][0];
+			expect(args).toEqual(['codereview', '-e', '43381', '--status=Reviewed']);
+		});
+
+		it('handles "Rework required" status', async () => {
+			mockExecCm.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 });
+
+			await backend.updateCodeReviewStatus(43381, 'Rework required' as any);
+			const args = mockExecCm.mock.calls[0][0];
+			expect(args).toContain('--status=Rework required');
+		});
+
+		it('throws on failure', async () => {
+			mockExecCm.mockResolvedValue({ stdout: '', stderr: 'error', exitCode: 1 });
+
+			await expect(backend.updateCodeReviewStatus(43381, 'Reviewed' as any)).rejects.toThrow('cm codereview edit failed');
+		});
+	});
+
 	describe('lock methods (CLI)', () => {
 		it('listLockRules throws NotSupportedError', async () => {
 			await expect(backend.listLockRules()).rejects.toThrow('not supported');
