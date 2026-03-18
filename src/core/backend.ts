@@ -45,6 +45,9 @@ export interface PlasticBackend {
 	removeReviewer(reviewId: number, reviewer: string): Promise<void>;
 	updateReviewerStatus(reviewId: number, reviewer: string, status: ReviewStatus): Promise<void>;
 
+	// Phase 4b — review comment resolution
+	resolveRevisionPaths(revisionIds: number[]): Promise<Map<number, string>>;
+
 	// Phase 5 — labels
 	listLabels(): Promise<LabelInfo[]>;
 	createLabel(params: CreateLabelParams): Promise<LabelInfo>;

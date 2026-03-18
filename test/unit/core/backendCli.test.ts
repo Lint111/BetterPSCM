@@ -1095,4 +1095,64 @@ Third line.</COMMENT>
 			}
 		});
 	});
+
+	describe('resolveRevisionPaths', () => {
+		it('resolves multiple revision IDs to file paths in one call', async () => {
+			mockExecCm.mockResolvedValue({
+				stdout: [
+					'C:\\proj\\Assets\\Scripts\\Foo.cs#42939',
+					'C:\\proj\\Assets\\Scripts\\Bar.cs#42940',
+				].join('\n'),
+				stderr: '',
+				exitCode: 0,
+			});
+
+			const result = await backend.resolveRevisionPaths([42939, 42940]);
+
+			expect(mockExecCm).toHaveBeenCalledWith([
+				'find', 'revision',
+				'where id=42939 or id=42940',
+				'--format={item}#{id}',
+				'--nototal',
+			]);
+			expect(result.get(42939)).toBe('C:\\proj\\Assets\\Scripts\\Foo.cs');
+			expect(result.get(42940)).toBe('C:\\proj\\Assets\\Scripts\\Bar.cs');
+		});
+
+		it('returns empty map for empty input', async () => {
+			const result = await backend.resolveRevisionPaths([]);
+			expect(result.size).toBe(0);
+			expect(mockExecCm).not.toHaveBeenCalled();
+		});
+
+		it('handles single revision ID', async () => {
+			mockExecCm.mockResolvedValue({
+				stdout: 'C:\\proj\\Assets\\Scripts\\Foo.cs#42939\n',
+				stderr: '',
+				exitCode: 0,
+			});
+
+			const result = await backend.resolveRevisionPaths([42939]);
+
+			expect(mockExecCm).toHaveBeenCalledWith([
+				'find', 'revision',
+				'where id=42939',
+				'--format={item}#{id}',
+				'--nototal',
+			]);
+			expect(result.get(42939)).toBe('C:\\proj\\Assets\\Scripts\\Foo.cs');
+		});
+
+		it('chunks large revision lists into multiple calls', async () => {
+			const ids = Array.from({ length: 60 }, (_, i) => i + 1);
+			mockExecCm
+				.mockResolvedValueOnce({ stdout: ids.slice(0, 50).map(id => `C:\\f${id}.cs#${id}`).join('\n'), stderr: '', exitCode: 0 })
+				.mockResolvedValueOnce({ stdout: ids.slice(50).map(id => `C:\\f${id}.cs#${id}`).join('\n'), stderr: '', exitCode: 0 });
+
+			const result = await backend.resolveRevisionPaths(ids);
+
+			expect(mockExecCm).toHaveBeenCalledTimes(2);
+			expect(result.size).toBe(60);
+		});
+	});
 });

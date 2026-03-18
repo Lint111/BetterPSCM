@@ -136,6 +136,16 @@ export interface ReviewCommentInfo {
 	locationSpec?: string;
 }
 
+export interface ResolvedComment {
+	id: number;
+	owner: string;
+	text: string;
+	type: ReviewCommentType;
+	timestamp: string;
+	filePath: string;
+	lineNumber: number;
+}
+
 export interface CreateReviewParams {
 	title: string;
 	targetType: 'Branch' | 'Changeset' | 'Label';
@@ -199,6 +209,35 @@ export interface MergeReport {
 export interface MergeResult {
 	changesetId: number;
 	conflicts: string[];
+}
+
+// ── Phase 5: Locks ──────────────────────────────────────────────────
+
+export type LockStatus = 'Retained' | 'Locked';
+
+export interface LockRuleInfo {
+	name: string;
+	/** Glob pattern for files to lock (e.g. "*.psd", "Assets/Art/**") */
+	rules: string;
+	/** Branch where locks apply */
+	targetBranch: string;
+	/** Branches excluded from locking */
+	excludedBranches: string[];
+	/** Branches that receive exclusive locks */
+	destinationBranches: string[];
+}
+
+export interface LockInfo {
+	id: string;
+	name: string;
+	status: LockStatus;
+	holderBranchName: string;
+	holderBranchId: number;
+	destinationBranchName: string;
+	destinationBranchId: number;
+	owner: string;
+	date: string;
+	itemId: number;
 }
 
 export class NotSupportedError extends Error {

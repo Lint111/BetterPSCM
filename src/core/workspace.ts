@@ -6,6 +6,7 @@ import type {
 	CreateReviewParams, CreateCommentParams, ReviewStatus,
 	LabelInfo, CreateLabelParams, FileHistoryEntry, BlameLine,
 	MergeReport, MergeResult,
+	LockRuleInfo,
 } from './types';
 
 // Re-export for consumers that import from workspace.ts
@@ -190,4 +191,30 @@ export async function executeMerge(sourceBranch: string, targetBranch: string, c
 	branchCache.clear();
 	branchListCache.clear();
 	return result;
+}
+
+// ── Phase 5: Locks ─────────────────────────────────────────────────
+
+export async function listLockRules(): Promise<LockRuleInfo[]> {
+	return getBackend().listLockRules();
+}
+
+export async function createLockRule(rule: LockRuleInfo): Promise<LockRuleInfo> {
+	return getBackend().createLockRule(rule);
+}
+
+export async function deleteLockRules(): Promise<void> {
+	return getBackend().deleteLockRules();
+}
+
+export async function deleteLockRulesForRepo(): Promise<void> {
+	return getBackend().deleteLockRulesForRepo();
+}
+
+export async function releaseLocks(itemIds: number[], mode: 'Delete' | 'Release'): Promise<void> {
+	return getBackend().releaseLocks(itemIds, mode);
+}
+
+export async function resolveRevisionPaths(revisionIds: number[]): Promise<Map<number, string>> {
+	return getBackend().resolveRevisionPaths(revisionIds);
 }

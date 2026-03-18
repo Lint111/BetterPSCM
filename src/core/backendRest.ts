@@ -713,6 +713,10 @@ export class RestBackend implements PlasticBackend {
 		log(`Deleted lock rules for repo "${repoName}"`);
 	}
 
+	async resolveRevisionPaths(_revisionIds: number[]): Promise<Map<number, string>> {
+		return new Map();
+	}
+
 	async releaseLocks(itemIds: number[], mode: 'Delete' | 'Release'): Promise<void> {
 		const client = getClient();
 		const orgName = getOrgName();

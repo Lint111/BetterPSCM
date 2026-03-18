@@ -533,6 +533,37 @@ export class CliBackend implements PlasticBackend {
 	async removeReviewer(): Promise<void> { throw new NotSupportedError('removeReviewer', 'cm CLI (requires REST API backend for managing reviewers)'); }
 	async updateReviewerStatus(): Promise<void> { throw new NotSupportedError('updateReviewerStatus', 'cm CLI (requires REST API backend for managing reviewers)'); }
 
+	// Phase 4b — review comment resolution
+	async resolveRevisionPaths(revisionIds: number[]): Promise<Map<number, string>> {
+		if (revisionIds.length === 0) return new Map();
+
+		const CHUNK_SIZE = 50;
+		const pathMap = new Map<number, string>();
+
+		for (let i = 0; i < revisionIds.length; i += CHUNK_SIZE) {
+			const chunk = revisionIds.slice(i, i + CHUNK_SIZE);
+			const whereClause = chunk.map(id => `id=${id}`).join(' or ');
+			const result = await execCm([
+				'find', 'revision',
+				`where ${whereClause}`,
+				'--format={item}#{id}',
+				'--nototal',
+			]);
+			if (result.exitCode !== 0) {
+				throw new Error(`cm find revision failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
+			}
+			for (const line of result.stdout.split(/\r?\n/).filter(l => l.length > 0)) {
+				const sepIdx = line.lastIndexOf('#');
+				if (sepIdx < 0) continue;
+				const filePath = line.substring(0, sepIdx);
+				const id = parseInt(line.substring(sepIdx + 1), 10);
+				if (!isNaN(id)) pathMap.set(id, filePath);
+			}
+		}
+
+		return pathMap;
+	}
+
 	// Phase 5 — Labels
 	async listLabels(): Promise<LabelInfo[]> {
 		const result = await execCm([
