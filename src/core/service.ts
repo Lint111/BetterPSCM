@@ -172,4 +172,65 @@ export class PlasticService {
 		this.store.clear();
 		return { ...result!, autoExcluded, autoAdded };
 	}
+
+	// ── Add to source control ───────────────────────────────────────
+
+	async addToSourceControl(
+		paths: string[],
+		options?: StageOptions,
+	): Promise<string[]> {
+		const status = await this.backend.getStatus(true);
+		const privateFiles = status.changes
+			.filter(c => c.changeType === 'private' && c.dataType === 'File')
+			.map(c => c.path);
+
+		const toAdd = new Set<string>();
+
+		for (const p of paths) {
+			const normalized = p.replace(/\\/g, '/').replace(/\/$/, '');
+
+			// Exact match
+			const exact = privateFiles.find(f =>
+				f === normalized || f === p || f.replace(/\\/g, '/') === normalized,
+			);
+			if (exact) {
+				toAdd.add(exact);
+				continue;
+			}
+
+			// Directory prefix
+			const prefix = normalized.endsWith('/') ? normalized : normalized + '/';
+			let matched = false;
+			for (const priv of privateFiles) {
+				const normPriv = priv.replace(/\\/g, '/');
+				if (normPriv.startsWith(prefix) || normPriv.toLowerCase().startsWith(prefix.toLowerCase())) {
+					toAdd.add(priv);
+					matched = true;
+				}
+			}
+
+			if (!matched) toAdd.add(p);
+		}
+
+		// Meta expansion
+		if (options?.autoMeta !== false) {
+			const metaToAdd: string[] = [];
+			for (const filePath of toAdd) {
+				const metaPath = filePath + '.meta';
+				const normalizedMeta = metaPath.replace(/\\/g, '/');
+				const metaExists = privateFiles.find(f =>
+					f === metaPath || f.replace(/\\/g, '/') === normalizedMeta,
+				);
+				if (metaExists && !toAdd.has(metaExists)) {
+					metaToAdd.push(metaExists);
+				}
+			}
+			for (const m of metaToAdd) toAdd.add(m);
+		}
+
+		if (toAdd.size === 0) return [];
+		const addArray = [...toAdd];
+		await this.backend.addToSourceControl(addArray);
+		return addArray;
+	}
 }

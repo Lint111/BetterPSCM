@@ -207,3 +207,38 @@ describe('PlasticService — checkin', () => {
 			.rejects.toThrow('No files staged');
 	});
 });
+
+describe('PlasticService — addToSourceControl', () => {
+	it('resolves directory prefixes to matching private files', async () => {
+		const backend = mockBackend([
+			{ path: 'Assets/Scripts/Foo.cs', changeType: 'private', dataType: 'File' },
+			{ path: 'Assets/Scripts/Bar.cs', changeType: 'private', dataType: 'File' },
+			{ path: 'Assets/Data/baz.asset', changeType: 'private', dataType: 'File' },
+			{ path: 'Assets/Scripts/Tracked.cs', changeType: 'changed', dataType: 'File' },
+		]);
+		const store = new InMemoryStagingStore();
+		const service = new PlasticService(backend, store);
+
+		const added = await service.addToSourceControl(['Assets/Scripts'], { autoMeta: false });
+		expect(backend.addToSourceControl).toHaveBeenCalled();
+		const paths = (backend.addToSourceControl as ReturnType<typeof vi.fn>).mock.calls[0][0];
+		expect(paths).toContain('Assets/Scripts/Foo.cs');
+		expect(paths).toContain('Assets/Scripts/Bar.cs');
+		expect(paths).not.toContain('Assets/Data/baz.asset');
+		expect(paths).not.toContain('Assets/Scripts/Tracked.cs');
+	});
+
+	it('expands .meta companions when autoMeta=true', async () => {
+		const backend = mockBackend([
+			{ path: 'Assets/new.cs', changeType: 'private', dataType: 'File' },
+			{ path: 'Assets/new.cs.meta', changeType: 'private', dataType: 'File' },
+		]);
+		const store = new InMemoryStagingStore();
+		const service = new PlasticService(backend, store);
+
+		await service.addToSourceControl(['Assets/new.cs'], { autoMeta: true });
+		const paths = (backend.addToSourceControl as ReturnType<typeof vi.fn>).mock.calls[0][0];
+		expect(paths).toContain('Assets/new.cs');
+		expect(paths).toContain('Assets/new.cs.meta');
+	});
+});
