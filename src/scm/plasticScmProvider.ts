@@ -9,7 +9,9 @@ import {
 	COMMANDS,
 	PLASTIC_URI_SCHEME,
 } from '../constants';
-import { StagingManager } from './stagingManager';
+import { MementoStagingStore } from './mementoStagingStore';
+import { PlasticService } from '../core/service';
+import { getBackend } from '../core/backend';
 import { PlasticQuickDiffProvider, PlasticContentProvider } from './quickDiffProvider';
 import { createResourceState } from './resourceStateFactory';
 import { fetchWorkspaceStatus, getCurrentBranch } from '../core/workspace';
@@ -30,7 +32,8 @@ export class PlasticScmProvider implements vscode.Disposable {
 	private readonly sourceControl: vscode.SourceControl;
 	private readonly stagedGroup: vscode.SourceControlResourceGroup;
 	private readonly changesGroup: vscode.SourceControlResourceGroup;
-	private readonly stagingManager: StagingManager;
+	private readonly stagingStore: MementoStagingStore;
+	private readonly service: PlasticService;
 	private readonly poller: AdaptivePoller;
 	private readonly contentProvider: PlasticContentProvider;
 	private readonly quickDiffProvider: PlasticQuickDiffProvider;
@@ -73,11 +76,12 @@ export class PlasticScmProvider implements vscode.Disposable {
 			this.sourceControl.createResourceGroup(RESOURCE_GROUP_CHANGES, RESOURCE_GROUP_CHANGES_LABEL),
 		);
 
-		// Initialize staging manager
-		this.stagingManager = this.disposables.add(new StagingManager(memento));
+		// Initialize staging store (replaces StagingManager)
+		this.stagingStore = new MementoStagingStore(memento);
 		this.disposables.add(
-			this.stagingManager.onDidChange(() => this.updateResourceGroups()),
+			this.stagingStore.onDidChange(() => this.updateResourceGroups()),
 		);
+		this.service = new PlasticService(getBackend(), this.stagingStore);
 
 		// Register content provider for plastic: URIs
 		this.contentProvider = new PlasticContentProvider();
@@ -107,10 +111,10 @@ export class PlasticScmProvider implements vscode.Disposable {
 	}
 
 	/**
-	 * Get the staging manager.
+	 * Get the shared PlasticService instance.
 	 */
-	getStagingManager(): StagingManager {
-		return this.stagingManager;
+	getService(): PlasticService {
+		return this.service;
 	}
 
 	/**
@@ -145,7 +149,7 @@ export class PlasticScmProvider implements vscode.Disposable {
 	 * Get the count of staged changes.
 	 */
 	getStagedCount(): number {
-		return this.stagingManager.splitChanges(this.currentChanges).staged.length;
+		return this.currentChanges.filter(c => this.stagingStore.has(c.path)).length;
 	}
 
 	/**
@@ -180,8 +184,10 @@ export class PlasticScmProvider implements vscode.Disposable {
 			// Update quick diff provider with latest changes
 			this.quickDiffProvider.updateChanges(this.currentChanges, this.workspaceRoot.fsPath);
 
-			// Prune stale staged paths
-			this.stagingManager.pruneStale(this.currentChanges);
+			// Prune stale staged paths (sync, using already-fetched currentChanges)
+			const currentPaths = new Set(this.currentChanges.map(c => c.path));
+			const stale = [...this.stagingStore.getAll()].filter(p => !currentPaths.has(p));
+			if (stale.length > 0) this.stagingStore.remove(stale);
 
 			// Update resource groups
 			this.updateResourceGroups();
@@ -230,7 +236,7 @@ export class PlasticScmProvider implements vscode.Disposable {
 					'View Output',
 				).then(action => {
 					if (action === 'View Output') {
-						getLogger().show();
+						getLogger().show?.();
 					}
 				});
 			}
@@ -238,7 +244,15 @@ export class PlasticScmProvider implements vscode.Disposable {
 	}
 
 	private updateResourceGroups(): void {
-		const { staged, unstaged } = this.stagingManager.splitChanges(this.currentChanges);
+		const staged: NormalizedChange[] = [];
+		const unstaged: NormalizedChange[] = [];
+		for (const c of this.currentChanges) {
+			if (this.stagingStore.has(c.path)) {
+				staged.push(c);
+			} else {
+				unstaged.push(c);
+			}
+		}
 
 		this.stagedGroup.resourceStates = staged.map(c =>
 			createResourceState(c, this.workspaceRoot),

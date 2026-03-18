@@ -9,39 +9,39 @@ export function registerStagingCommands(
 	context: vscode.ExtensionContext,
 	provider: PlasticScmProvider,
 ): void {
-	const staging = provider.getStagingManager();
-
 	context.subscriptions.push(
-		vscode.commands.registerCommand(COMMANDS.stage, (...resourceStates: vscode.SourceControlResourceState[]) => {
+		vscode.commands.registerCommand(COMMANDS.stage, async (...resourceStates: vscode.SourceControlResourceState[]) => {
 			const paths = extractPaths(resourceStates);
 			if (paths.length > 0) {
+				const service = provider.getService();
 				const allChangePaths = new Set(provider.getAllChanges().map(c => c.path));
-				staging.stage(expandMetaPairs(paths, allChangePaths));
+				await service.stage(expandMetaPairs(paths, allChangePaths), { autoMeta: false });
 			}
 		}),
 	);
 
 	context.subscriptions.push(
-		vscode.commands.registerCommand(COMMANDS.unstage, (...resourceStates: vscode.SourceControlResourceState[]) => {
+		vscode.commands.registerCommand(COMMANDS.unstage, async (...resourceStates: vscode.SourceControlResourceState[]) => {
 			const paths = extractPaths(resourceStates);
 			if (paths.length > 0) {
+				const service = provider.getService();
 				const allChangePaths = new Set(provider.getAllChanges().map(c => c.path));
-				staging.unstage(expandMetaPairs(paths, allChangePaths));
+				await service.unstage(expandMetaPairs(paths, allChangePaths));
 			}
 		}),
 	);
 
 	context.subscriptions.push(
-		vscode.commands.registerCommand(COMMANDS.stageAll, () => {
-			const changes = provider.getAllChanges();
-			const { unstaged } = staging.splitChanges(changes);
-			staging.stageAll(unstaged);
+		vscode.commands.registerCommand(COMMANDS.stageAll, async () => {
+			const service = provider.getService();
+			await service.stageAll();
 		}),
 	);
 
 	context.subscriptions.push(
-		vscode.commands.registerCommand(COMMANDS.unstageAll, () => {
-			staging.unstageAll();
+		vscode.commands.registerCommand(COMMANDS.unstageAll, async () => {
+			const service = provider.getService();
+			await service.unstageAll();
 		}),
 	);
 }

@@ -22,6 +22,14 @@ vi.mock('../../../src/api/errors', () => ({
 	isPlasticApiError: () => false,
 }));
 
+vi.mock('../../../src/core/backend', () => ({
+	getBackend: vi.fn(() => ({
+		name: 'mock',
+		getStatus: vi.fn().mockResolvedValue({ changes: [] }),
+		getCurrentBranch: vi.fn().mockResolvedValue('/main'),
+	})),
+}));
+
 import { fetchWorkspaceStatus, getCurrentBranch } from '../../../src/core/workspace';
 import { PlasticScmProvider } from '../../../src/scm/plasticScmProvider';
 
@@ -49,8 +57,8 @@ describe('PlasticScmProvider', () => {
 		expect(provider.getPendingCount()).toBe(0);
 	});
 
-	it('returns staging manager', () => {
-		expect(provider.getStagingManager()).toBeDefined();
+	it('returns service', () => {
+		expect(provider.getService()).toBeDefined();
 	});
 
 	it('gets and clears input box value', () => {

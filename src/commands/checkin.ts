@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import type { PlasticScmProvider } from '../scm/plasticScmProvider';
 import { COMMANDS } from '../constants';
-import { checkinFiles } from '../core/workspace';
 import { log, logError } from '../util/logger';
 
 /**
@@ -27,22 +26,18 @@ export function registerCheckinCommands(
 }
 
 async function performCheckin(provider: PlasticScmProvider, all: boolean): Promise<void> {
-	const staging = provider.getStagingManager();
-	const allChanges = provider.getAllChanges();
+	const service = provider.getService();
 
-	// Determine which paths to check in
-	let paths: string[];
-	if (all) {
-		paths = allChanges.map(c => c.path);
-	} else {
-		const { staged } = staging.splitChanges(allChanges);
-		paths = staged.map(c => c.path);
+	// Quick check: any changes at all?
+	const allChanges = provider.getAllChanges();
+	if (allChanges.length === 0) {
+		vscode.window.showWarningMessage('No changes to check in.');
+		return;
 	}
 
-	if (paths.length === 0) {
-		vscode.window.showWarningMessage(
-			all ? 'No changes to check in.' : 'No staged changes to check in. Stage files first.',
-		);
+	// For staged-only mode, check if anything is staged
+	if (!all && service.getStagedPaths().length === 0) {
+		vscode.window.showWarningMessage('No staged changes to check in. Stage files first.');
 		return;
 	}
 
@@ -64,20 +59,17 @@ async function performCheckin(provider: PlasticScmProvider, all: boolean): Promi
 		await vscode.window.withProgress(
 			{
 				location: vscode.ProgressLocation.SourceControl,
-				title: `Checking in ${paths.length} file(s)...`,
+				title: 'Checking in...',
 			},
 			async () => {
-				const result = await checkinFiles(paths, comment);
+				const result = await service.checkin({ comment, all });
 				vscode.window.showInformationMessage(
-					`Checked in ${paths.length} file(s) as changeset ${result.changesetId}`,
+					`Checked in as changeset ${result.changesetId}`,
 				);
 				log(`Checkin result: changeset ${result.changesetId} on branch ${result.branchName}`);
 
 				// Clear state
 				provider.clearInputBox();
-				if (!all) {
-					staging.unstageAll();
-				}
 
 				// Refresh status
 				await provider.refresh();
