@@ -425,8 +425,25 @@ export class CliBackend implements PlasticBackend {
 		return items;
 	}
 
-	// Phase 4 — Code reviews require REST API
-	async listCodeReviews(): Promise<CodeReviewInfo[]> { throw new NotSupportedError('listCodeReviews', this.name); }
+	// Phase 4 — Code reviews
+	async listCodeReviews(filter?: 'all' | 'assignedToMe' | 'createdByMe' | 'pending'): Promise<CodeReviewInfo[]> {
+		const whereClause = filter === 'assignedToMe' ? "where assignee = 'me'"
+			: filter === 'createdByMe' ? "where owner = 'me'"
+			: filter === 'pending' ? "where status = 'Under review'"
+			: undefined;
+		const args = [
+			'find', 'review',
+			...(whereClause ? [whereClause] : []),
+			'--format={id}#{title}#{status}#{owner}#{date}#{targettype}#{target}#{assignee}',
+			'--nototal',
+		];
+		const result = await execCm(args);
+		if (result.exitCode !== 0) {
+			throw new Error(`cm find review failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
+		}
+		const lines = result.stdout.split(/\r?\n/).filter(l => l.length > 0);
+		return lines.map(parseReviewLine).filter((r): r is CodeReviewInfo => r !== undefined);
+	}
 	async getCodeReview(): Promise<CodeReviewInfo> { throw new NotSupportedError('getCodeReview', this.name); }
 	async createCodeReview(): Promise<CodeReviewInfo> { throw new NotSupportedError('createCodeReview', this.name); }
 	async deleteCodeReview(): Promise<void> { throw new NotSupportedError('deleteCodeReview', this.name); }
@@ -836,6 +853,39 @@ function parseHistoryLine(line: string): FileHistoryEntry | undefined {
 			: typeStr.includes('del') ? 'deleted'
 			: typeStr.includes('mov') ? 'moved'
 			: 'changed',
+	};
+}
+
+function parseReviewLine(line: string): CodeReviewInfo | undefined {
+	const parts = line.split('#');
+	if (parts.length < 7) return undefined;
+
+	const id = parseInt(parts[0], 10);
+	if (isNaN(id)) return undefined;
+
+	// Status comes prefixed with "Status " — strip it
+	const rawStatus = parts[2];
+	const status = rawStatus.startsWith('Status ')
+		? rawStatus.substring(7) as ReviewStatus
+		: rawStatus as ReviewStatus;
+
+	const target = parts[6];
+	const targetId = /^\d+$/.test(target) ? parseInt(target, 10) : 0;
+	const assignee = parts[7]?.trim() || undefined;
+
+	return {
+		id,
+		title: parts[1],
+		status,
+		owner: parts[3],
+		created: parts[4],
+		modified: parts[4],
+		targetType: parts[5] as 'Branch' | 'Changeset',
+		targetSpec: target,
+		targetId,
+		assignee,
+		commentsCount: 0,
+		reviewers: [],
 	};
 }
 

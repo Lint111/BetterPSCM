@@ -560,10 +560,6 @@ describe('CliBackend', () => {
 	});
 
 	describe('code review methods (CLI)', () => {
-		it('listCodeReviews throws NotSupportedError', async () => {
-			await expect(backend.listCodeReviews()).rejects.toThrow('not supported');
-		});
-
 		it('getCodeReview throws NotSupportedError', async () => {
 			await expect(backend.getCodeReview(1)).rejects.toThrow('not supported');
 		});
@@ -579,10 +575,128 @@ describe('CliBackend', () => {
 				reviewId: 1, text: 'test',
 			})).rejects.toThrow('not supported');
 		});
+	});
 
-		it('all code review methods throw NotSupportedError with backend name', async () => {
+	describe('listCodeReviews', () => {
+		it('parses cm find review output into CodeReviewInfo[]', async () => {
+			mockExecCm.mockResolvedValue({
+				stdout: [
+					'43381#Review of changeset 531#Status Reviewed#snoff4@icloud.com#17/02/2026 14:59:28#Changeset#531#theo.muenster@outlook.com',
+					'48560#Review of branch /main/Tech/unit-formations#Status Rework required#ioanaraileanu24@yahoo.com#05/03/2026 15:43:26#Branch#id:47235#theo.muenster@outlook.com',
+				].join('\n'),
+				stderr: '',
+				exitCode: 0,
+			});
+
+			const reviews = await backend.listCodeReviews();
+			expect(reviews).toHaveLength(2);
+
+			expect(reviews[0]).toEqual({
+				id: 43381,
+				title: 'Review of changeset 531',
+				status: 'Reviewed',
+				owner: 'snoff4@icloud.com',
+				created: '17/02/2026 14:59:28',
+				modified: '17/02/2026 14:59:28',
+				targetType: 'Changeset',
+				targetSpec: '531',
+				targetId: 531,
+				assignee: 'theo.muenster@outlook.com',
+				commentsCount: 0,
+				reviewers: [],
+			});
+
+			expect(reviews[1]).toEqual({
+				id: 48560,
+				title: 'Review of branch /main/Tech/unit-formations',
+				status: 'Rework required',
+				owner: 'ioanaraileanu24@yahoo.com',
+				created: '05/03/2026 15:43:26',
+				modified: '05/03/2026 15:43:26',
+				targetType: 'Branch',
+				targetSpec: 'id:47235',
+				targetId: 0,
+				assignee: 'theo.muenster@outlook.com',
+				commentsCount: 0,
+				reviewers: [],
+			});
+		});
+
+		it('applies assignedToMe filter', async () => {
+			mockExecCm.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 });
+
+			await backend.listCodeReviews('assignedToMe');
+			const args = mockExecCm.mock.calls[0][0];
+			expect(args.join(' ')).toContain("where assignee = 'me'");
+		});
+
+		it('applies createdByMe filter', async () => {
+			mockExecCm.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 });
+
+			await backend.listCodeReviews('createdByMe');
+			const args = mockExecCm.mock.calls[0][0];
+			expect(args.join(' ')).toContain("where owner = 'me'");
+		});
+
+		it('applies pending filter', async () => {
+			mockExecCm.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 });
+
+			await backend.listCodeReviews('pending');
+			const args = mockExecCm.mock.calls[0][0];
+			expect(args.join(' ')).toContain("where status = 'Under review'");
+		});
+
+		it('handles empty result', async () => {
+			mockExecCm.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 });
+
+			const reviews = await backend.listCodeReviews();
+			expect(reviews).toEqual([]);
+		});
+
+		it('handles review with no assignee', async () => {
+			mockExecCm.mockResolvedValue({
+				stdout: '100#Some review#Status Under review#owner@test.com#01/01/2026 10:00:00#Changeset#42#\n',
+				stderr: '',
+				exitCode: 0,
+			});
+
+			const reviews = await backend.listCodeReviews();
+			expect(reviews).toHaveLength(1);
+			expect(reviews[0].assignee).toBeUndefined();
+		});
+
+		it('throws on cm failure', async () => {
+			mockExecCm.mockResolvedValue({ stdout: '', stderr: 'error', exitCode: 1 });
+
+			await expect(backend.listCodeReviews()).rejects.toThrow('cm find review failed');
+		});
+	});
+
+	describe('lock methods (CLI)', () => {
+		it('listLockRules throws NotSupportedError', async () => {
+			await expect(backend.listLockRules()).rejects.toThrow('not supported');
+		});
+
+		it('createLockRule throws NotSupportedError', async () => {
+			const rule = { name: 'x', rules: '*.x', targetBranch: '', excludedBranches: [], destinationBranches: [] };
+			await expect(backend.createLockRule(rule)).rejects.toThrow('not supported');
+		});
+
+		it('deleteLockRules throws NotSupportedError', async () => {
+			await expect(backend.deleteLockRules()).rejects.toThrow('not supported');
+		});
+
+		it('deleteLockRulesForRepo throws NotSupportedError', async () => {
+			await expect(backend.deleteLockRulesForRepo()).rejects.toThrow('not supported');
+		});
+
+		it('releaseLocks throws NotSupportedError', async () => {
+			await expect(backend.releaseLocks([1], 'Release')).rejects.toThrow('not supported');
+		});
+
+		it('lock NotSupportedError includes backend name', async () => {
 			try {
-				await backend.listCodeReviews();
+				await backend.listLockRules();
 			} catch (err: any) {
 				expect(err.name).toBe('NotSupportedError');
 				expect(err.message).toContain('cm CLI');
