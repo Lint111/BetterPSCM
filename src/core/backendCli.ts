@@ -24,6 +24,8 @@ import type {
 	BlameLine,
 	MergeReport,
 	MergeResult,
+	LockRuleInfo,
+	LockInfo,
 } from './types';
 import { NotSupportedError } from './types';
 
@@ -53,13 +55,8 @@ export class CliBackend implements PlasticBackend {
 		const lines = result.stdout.split(/\r?\n/).filter(l => l.length > 0);
 		const changes: NormalizedChange[] = [];
 
-		// Log first 10 raw lines for debugging
-		for (let i = 0; i < Math.min(lines.length, 10); i++) {
-			log(`[cm status raw] line[${i}]: "${lines[i]}"`);
-		}
-		if (lines.length > 10) {
-			log(`[cm status raw] ... and ${lines.length - 10} more lines`);
-		}
+		// Summary-only logging to avoid flooding output on large changesets
+		log(`[cm status] ${lines.length} raw lines`);
 
 		for (const line of lines) {
 			if (line.startsWith('STATUS ')) continue;
@@ -507,6 +504,41 @@ export class CliBackend implements PlasticBackend {
 		return parseAnnotateOutput(result.stdout);
 	}
 
+	// Phase 6 — Undo checkout
+	async undoCheckout(paths: string[]): Promise<string[]> {
+		// --silent suppresses any GUI confirmation dialogs
+		const args = ['undocheckout', '--silent', ...paths];
+		const result = await execCm(args);
+		if (result.exitCode !== 0) {
+			throw new Error(`cm undocheckout failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
+		}
+		log(`Undo checkout: ${paths.length} file(s)`);
+		return paths;
+	}
+
+	// Phase 7 — Add private files to source control
+	async addToSourceControl(paths: string[]): Promise<string[]> {
+		if (paths.length === 0) return [];
+		// cm add adds private (untracked) files to source control, making them AD (added).
+		// This is required before they can be checked in.
+		const args = ['add', ...paths];
+		const result = await execCm(args);
+		if (result.exitCode !== 0) {
+			throw new Error(`cm add failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
+		}
+		log(`Added to source control: ${paths.length} file(s)`);
+		return paths;
+	}
+
+	// Phase 7 — get base revision content for backup
+	async getBaseRevisionContent(path: string): Promise<Buffer | null> {
+		const result = await execCm(['cat', path, '--raw'], 10 * 1024 * 1024);
+		if (result.exitCode === 0) {
+			return Buffer.from(result.stdout, 'binary');
+		}
+		return null;
+	}
+
 	// Phase 5 — Merges
 	async checkMergeAllowed(sourceBranch: string, targetBranch: string): Promise<MergeReport> {
 		const result = await execCm([
@@ -523,6 +555,13 @@ export class CliBackend implements PlasticBackend {
 			message: result.exitCode !== 0 ? output.trim() : undefined,
 		};
 	}
+
+	// Phase 5 — Locks (lock rules require REST API)
+	async listLockRules(): Promise<LockRuleInfo[]> { throw new NotSupportedError('listLockRules', this.name); }
+	async createLockRule(): Promise<LockRuleInfo> { throw new NotSupportedError('createLockRule', this.name); }
+	async deleteLockRules(): Promise<void> { throw new NotSupportedError('deleteLockRules', this.name); }
+	async deleteLockRulesForRepo(): Promise<void> { throw new NotSupportedError('deleteLockRulesForRepo', this.name); }
+	async releaseLocks(): Promise<void> { throw new NotSupportedError('releaseLocks', this.name); }
 
 	async executeMerge(sourceBranch: string, targetBranch: string, comment?: string): Promise<MergeResult> {
 		const args = ['merge', sourceBranch, '--to=' + targetBranch];
@@ -723,7 +762,10 @@ function parseStatusLine(line: string): NormalizedChange | undefined {
 	// cm status returns absolute paths — strip the workspace root to get relative paths
 	filePath = stripWorkspaceRoot(filePath);
 
-	log(`[parseStatusLine] code="${typeCode}${effectiveType !== changeType ? '+' + secondCode : ''}" isDirStr="${isDirStr}" path="${filePath}"`);
+	// Only log compound type codes and unparseable edge cases — skip routine lines
+	if (effectiveType !== changeType) {
+		log(`[parseStatusLine] compound code="${typeCode}+${secondCode}" path="${filePath}"`);
+	}
 
 	return {
 		path: filePath,
@@ -735,6 +777,7 @@ function parseStatusLine(line: string): NormalizedChange | undefined {
 /**
  * Strip the workspace root prefix from an absolute path to produce a relative path.
  * Handles both forward and back slashes, case-insensitive on Windows.
+ * Rejects paths that escape the workspace root (e.g., via ".." traversal).
  */
 function stripWorkspaceRoot(filePath: string): string {
 	const root = getCmWorkspaceRoot();
@@ -750,6 +793,13 @@ function stripWorkspaceRoot(filePath: string): string {
 		if (relative.startsWith('/')) {
 			relative = relative.substring(1);
 		}
+
+		// Reject paths that escape the workspace via ".." traversal
+		if (relative.includes('..')) {
+			log(`[stripWorkspaceRoot] rejected path with "..": "${filePath}"`);
+			return filePath;
+		}
+
 		return relative;
 	}
 

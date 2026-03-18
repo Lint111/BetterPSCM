@@ -7,6 +7,7 @@ import type {
 	ReviewerInfo, CreateReviewParams, CreateCommentParams, ReviewStatus,
 	LabelInfo, CreateLabelParams, FileHistoryEntry, BlameLine,
 	MergeReport, MergeResult,
+	LockRuleInfo, LockInfo,
 } from './types';
 import type { CheckInRequest } from './types';
 import { normalizeChange, NotSupportedError } from './types';
@@ -83,6 +84,9 @@ export class RestBackend implements PlasticBackend {
 		};
 	}
 
+	/** Maximum file size for REST content fetches (50 MB). */
+	private static readonly MAX_FILE_SIZE = 50 * 1024 * 1024;
+
 	async getFileContent(revSpec: string): Promise<Uint8Array | undefined> {
 		const client = getClient();
 		const orgName = getOrgName();
@@ -97,8 +101,15 @@ export class RestBackend implements PlasticBackend {
 		);
 
 		if (error) return undefined;
+		if (!data) return undefined;
 
-		return data ? new Uint8Array(data as ArrayBuffer) : undefined;
+		const buf = data as ArrayBuffer;
+		if (buf.byteLength > RestBackend.MAX_FILE_SIZE) {
+			log(`File content too large (${(buf.byteLength / 1024 / 1024).toFixed(1)} MB), skipping`);
+			return undefined;
+		}
+
+		return new Uint8Array(buf);
 	}
 
 	async listBranches(): Promise<BranchInfo[]> {
@@ -256,7 +267,10 @@ export class RestBackend implements PlasticBackend {
 			{ params: { path: { orgName, repoName, changesetId } } },
 		);
 
-		if (error) return [];
+		if (error) {
+			log(`getChangesetDiff failed for cs:${changesetId}: ${error instanceof Error ? error.message : String(error)}`);
+			return [];
+		}
 
 		const diffs = (data as any[]) ?? [];
 		return diffs.map((d: any) => ({
@@ -619,6 +633,114 @@ export class RestBackend implements PlasticBackend {
 			conflicts: (d?.conflicts ?? []).map((c: any) => c?.path ?? String(c)),
 		};
 	}
+	// Phase 6 — Undo checkout (REST API doesn't support this, delegate to CLI)
+	async undoCheckout(_paths: string[]): Promise<string[]> {
+		throw new NotSupportedError('undoCheckout', this.name);
+	}
+
+	// Phase 7 — Add files (REST API doesn't support this, delegate to CLI)
+	async addToSourceControl(_paths: string[]): Promise<string[]> {
+		throw new NotSupportedError('addToSourceControl', this.name);
+	}
+
+	// Phase 7 — get base revision content for backup
+	async getBaseRevisionContent(_path: string): Promise<Buffer | null> {
+		throw new NotSupportedError('getBaseRevisionContent', this.name);
+	}
+
+	// Phase 5 — Locks
+	async listLockRules(): Promise<LockRuleInfo[]> {
+		const client = getClient();
+		const orgName = getOrgName();
+
+		const { data, error } = await client.GET(
+			'/api/v2/organizations/{orgName}/lock-rules',
+			{ params: { path: { orgName } } },
+		);
+
+		if (error) throw error;
+		const d = data as any;
+		return (d?.repositoryRules ?? []).map(mapLockRule);
+	}
+
+	async createLockRule(rule: LockRuleInfo): Promise<LockRuleInfo> {
+		const client = getClient();
+		const orgName = getOrgName();
+
+		const { data, error } = await client.POST(
+			'/api/v2/organizations/{orgName}/lock-rules',
+			{
+				params: { path: { orgName } },
+				body: {
+					name: rule.name,
+					rules: rule.rules,
+					targetBranch: rule.targetBranch,
+					excludedBranches: rule.excludedBranches,
+					destinationBranches: rule.destinationBranches,
+				},
+			},
+		);
+
+		if (error) throw error;
+		log(`Created lock rule "${rule.name}"`);
+		return mapLockRule(data ?? rule);
+	}
+
+	async deleteLockRules(): Promise<void> {
+		const client = getClient();
+		const orgName = getOrgName();
+
+		const { error } = await client.DELETE(
+			'/api/v2/organizations/{orgName}/lock-rules',
+			{ params: { path: { orgName } } },
+		);
+
+		if (error) throw error;
+		log('Deleted all lock rules');
+	}
+
+	async deleteLockRulesForRepo(): Promise<void> {
+		const client = getClient();
+		const orgName = getOrgName();
+		const repoName = getRepoName();
+
+		const { error } = await client.DELETE(
+			'/api/v2/organizations/{orgName}/lock-rules/{repositoryName}' as any,
+			{ params: { path: { orgName, repositoryName: repoName } } },
+		);
+
+		if (error) throw error;
+		log(`Deleted lock rules for repo "${repoName}"`);
+	}
+
+	async releaseLocks(itemIds: number[], mode: 'Delete' | 'Release'): Promise<void> {
+		const client = getClient();
+		const orgName = getOrgName();
+		const repoName = getRepoName();
+
+		const { error } = await client.DELETE(
+			'/api/v2/organizations/{orgName}/repositories/{repoName}/locks' as any,
+			{
+				params: {
+					path: { orgName, repoName },
+					query: { itemIds, editLockType: mode },
+				},
+			},
+		);
+
+		if (error) throw error;
+		log(`${mode === 'Release' ? 'Released' : 'Deleted'} ${itemIds.length} lock(s)`);
+	}
+}
+
+function mapLockRule(data: any): LockRuleInfo {
+	return {
+		name: data?.name ?? '',
+		rules: data?.rules ?? '',
+		targetBranch: data?.targetBranch ?? '',
+		excludedBranches: data?.excludedBranches ?? [],
+		destinationBranches: data?.destinationBranches ?? [],
+	};
 }
 
 function mapCodeReview(data: any): CodeReviewInfo {

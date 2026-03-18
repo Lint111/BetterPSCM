@@ -5,6 +5,7 @@ import type {
 	CreateReviewParams, CreateCommentParams, ReviewStatus,
 	LabelInfo, CreateLabelParams, FileHistoryEntry, BlameLine,
 	MergeReport, MergeResult,
+	LockRuleInfo, LockInfo,
 } from './types';
 
 /**
@@ -53,9 +54,25 @@ export interface PlasticBackend {
 	getFileHistory(path: string): Promise<FileHistoryEntry[]>;
 	getBlame(path: string): Promise<BlameLine[]>;
 
+	// Phase 6 — undo checkout
+	undoCheckout(paths: string[]): Promise<string[]>;
+
+	// Phase 7 — add private files to source control
+	addToSourceControl(paths: string[]): Promise<string[]>;
+
+	// Phase 7 — get base revision content for backup
+	getBaseRevisionContent(path: string): Promise<Buffer | null>;
+
 	// Phase 5 — merges
 	checkMergeAllowed(sourceBranch: string, targetBranch: string): Promise<MergeReport>;
 	executeMerge(sourceBranch: string, targetBranch: string, comment?: string): Promise<MergeResult>;
+
+	// Phase 5 — locks
+	listLockRules(): Promise<LockRuleInfo[]>;
+	createLockRule(rule: LockRuleInfo): Promise<LockRuleInfo>;
+	deleteLockRules(): Promise<void>;
+	deleteLockRulesForRepo(): Promise<void>;
+	releaseLocks(itemIds: number[], mode: 'Delete' | 'Release'): Promise<void>;
 }
 
 let activeBackend: PlasticBackend | undefined;
