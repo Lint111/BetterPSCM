@@ -76,7 +76,7 @@ function extractGuid(content: Buffer): string | null {
 // ── Public API ─────────────────────────────────────────────────────────
 
 export function resolveBackupDir(workspace: string, overrideDir?: string): string {
-    const base = overrideDir ?? path.join(os.homedir(), '.plastic-scm-backups');
+    const base = overrideDir ?? process.env.PLASTIC_BACKUP_DIR ?? path.join(os.homedir(), '.plastic-scm-backups');
     return path.join(base, sanitizeWorkspaceName(workspace));
 }
 
@@ -92,7 +92,7 @@ export async function createBackup(options: CreateBackupOptions): Promise<string
 
     const timestamp = formatTimestamp(new Date());
     const wsBackupDir = resolveBackupDir(workspace, backupBaseDir);
-    const backupDir = path.join(wsBackupDir, timestamp);
+    const backupDir = path.join(wsBackupDir, `${timestamp}_${tool}`);
     const filesDir = path.join(backupDir, 'files');
     const baseDir = path.join(backupDir, 'base');
 
