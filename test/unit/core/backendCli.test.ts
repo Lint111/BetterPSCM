@@ -560,16 +560,6 @@ describe('CliBackend', () => {
 	});
 
 	describe('code review methods (CLI)', () => {
-		it('getCodeReview throws NotSupportedError', async () => {
-			await expect(backend.getCodeReview(1)).rejects.toThrow('not supported');
-		});
-
-		it('createCodeReview throws NotSupportedError', async () => {
-			await expect(backend.createCodeReview({
-				title: 'test', targetType: 'Branch', targetId: 1,
-			})).rejects.toThrow('not supported');
-		});
-
 		it('addReviewComment throws NotSupportedError', async () => {
 			await expect(backend.addReviewComment({
 				reviewId: 1, text: 'test',
@@ -669,6 +659,32 @@ describe('CliBackend', () => {
 			mockExecCm.mockResolvedValue({ stdout: '', stderr: 'error', exitCode: 1 });
 
 			await expect(backend.listCodeReviews()).rejects.toThrow('cm find review failed');
+		});
+	});
+
+	describe('getCodeReview', () => {
+		it('returns single review by ID', async () => {
+			mockExecCm.mockResolvedValue({
+				stdout: '43381#Review of changeset 531#Status Reviewed#snoff4@icloud.com#17/02/2026 14:59:28#Changeset#531#theo.muenster@outlook.com\n',
+				stderr: '',
+				exitCode: 0,
+			});
+
+			const review = await backend.getCodeReview(43381);
+			expect(review.id).toBe(43381);
+			expect(review.title).toBe('Review of changeset 531');
+			const args = mockExecCm.mock.calls[0][0];
+			expect(args).toContain('where id=43381');
+		});
+
+		it('throws if review not found', async () => {
+			mockExecCm.mockResolvedValue({
+				stdout: '',
+				stderr: '',
+				exitCode: 0,
+			});
+
+			await expect(backend.getCodeReview(99999)).rejects.toThrow('Code review 99999 not found');
 		});
 	});
 

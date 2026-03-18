@@ -444,7 +444,23 @@ export class CliBackend implements PlasticBackend {
 		const lines = result.stdout.split(/\r?\n/).filter(l => l.length > 0);
 		return lines.map(parseReviewLine).filter((r): r is CodeReviewInfo => r !== undefined);
 	}
-	async getCodeReview(): Promise<CodeReviewInfo> { throw new NotSupportedError('getCodeReview', this.name); }
+	async getCodeReview(id: number): Promise<CodeReviewInfo> {
+		const result = await execCm([
+			'find', 'review',
+			`where id=${id}`,
+			'--format={id}#{title}#{status}#{owner}#{date}#{targettype}#{target}#{assignee}',
+			'--nototal',
+		]);
+		if (result.exitCode !== 0) {
+			throw new Error(`cm find review failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
+		}
+		const lines = result.stdout.split(/\r?\n/).filter(l => l.length > 0);
+		const reviews = lines.map(parseReviewLine).filter((r): r is CodeReviewInfo => r !== undefined);
+		if (reviews.length === 0) {
+			throw new Error(`Code review ${id} not found`);
+		}
+		return reviews[0];
+	}
 	async createCodeReview(): Promise<CodeReviewInfo> { throw new NotSupportedError('createCodeReview', this.name); }
 	async deleteCodeReview(): Promise<void> { throw new NotSupportedError('deleteCodeReview', this.name); }
 	async updateCodeReviewStatus(): Promise<void> { throw new NotSupportedError('updateCodeReviewStatus', this.name); }
