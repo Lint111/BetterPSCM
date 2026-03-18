@@ -103,3 +103,107 @@ describe('PlasticService — staging', () => {
 		expect(service.isStaged('Assets/deleted.cs')).toBe(false);
 	});
 });
+
+describe('PlasticService — checkin', () => {
+	let store: InMemoryStagingStore;
+	let backend: ReturnType<typeof mockBackend>;
+
+	function makeService(changes: NormalizedChange[]) {
+		backend = mockBackend(changes) as ReturnType<typeof mockBackend>;
+		store = new InMemoryStagingStore();
+		return new PlasticService(backend, store);
+	}
+
+	it('checkin with all=true commits all non-directory changes', async () => {
+		const service = makeService([
+			{ path: 'Assets/foo.cs', changeType: 'changed', dataType: 'File' },
+			{ path: 'Assets', changeType: 'changed', dataType: 'Directory' },
+		]);
+		const result = await service.checkin({ comment: 'test', all: true });
+		expect(backend.checkin).toHaveBeenCalledWith(['Assets/foo.cs'], 'test');
+	});
+
+	it('checkin with staged paths uses store', async () => {
+		const service = makeService([
+			{ path: 'Assets/foo.cs', changeType: 'changed', dataType: 'File' },
+			{ path: 'Assets/bar.cs', changeType: 'changed', dataType: 'File' },
+		]);
+		store.add(['Assets/foo.cs']);
+		const result = await service.checkin({ comment: 'test' });
+		expect(backend.checkin).toHaveBeenCalledWith(['Assets/foo.cs'], 'test');
+	});
+
+	it('checkin excludes specified paths', async () => {
+		const service = makeService([
+			{ path: 'Assets/foo.cs', changeType: 'changed', dataType: 'File' },
+			{ path: 'Assets/bar.cs', changeType: 'changed', dataType: 'File' },
+		]);
+		const result = await service.checkin({
+			comment: 'test', all: true, excludePaths: ['Assets/bar.cs'],
+		});
+		expect(backend.checkin).toHaveBeenCalledWith(['Assets/foo.cs'], 'test');
+	});
+
+	it('checkin auto-adds private files', async () => {
+		const service = makeService([
+			{ path: 'Assets/new.cs', changeType: 'private', dataType: 'File' },
+			{ path: 'Assets/new.cs.meta', changeType: 'private', dataType: 'File' },
+		]);
+		const result = await service.checkin({
+			comment: 'test', all: true, autoAddPrivate: true,
+		});
+		expect(backend.addToSourceControl).toHaveBeenCalled();
+		const addedPaths = (backend.addToSourceControl as ReturnType<typeof vi.fn>).mock.calls[0][0];
+		expect(addedPaths).toContain('Assets/new.cs');
+		expect(addedPaths).toContain('Assets/new.cs.meta');
+	});
+
+	it('checkin filters out non-committable changes', async () => {
+		const service = makeService([
+			{ path: 'Assets/foo.cs', changeType: 'changed', dataType: 'File' },
+			{ path: 'Assets/stale.cs', changeType: 'checkedOut', dataType: 'File' },
+		]);
+		const result = await service.checkin({ comment: 'test', all: true });
+		expect(backend.checkin).toHaveBeenCalledWith(['Assets/foo.cs'], 'test');
+		expect(result.autoExcluded).toContain('Assets/stale.cs');
+	});
+
+	it('checkin clears staging store on success', async () => {
+		const service = makeService([
+			{ path: 'Assets/foo.cs', changeType: 'changed', dataType: 'File' },
+		]);
+		store.add(['Assets/foo.cs']);
+		await service.checkin({ comment: 'test' });
+		expect(service.getStagedPaths().length).toBe(0);
+	});
+
+	it('checkin retries on "not changed" rejection', async () => {
+		const service = makeService([
+			{ path: 'Assets/foo.cs', changeType: 'changed', dataType: 'File' },
+			{ path: 'Assets/stale', changeType: 'locallyDeleted', dataType: 'Directory' },
+		]);
+		(backend.checkin as ReturnType<typeof vi.fn>)
+			.mockRejectedValueOnce(new Error("The item 'Assets/stale' is not changed in current workspace"))
+			.mockResolvedValueOnce({ changesetId: 1, branchName: '/main' });
+
+		const result = await service.checkin({ comment: 'test', all: true });
+		expect(backend.checkin).toHaveBeenCalledTimes(2);
+		expect(result.autoExcluded).toContain('Assets/stale');
+	});
+
+	it('checkin throws if no paths to commit', async () => {
+		const service = makeService([
+			{ path: 'Assets/stale.cs', changeType: 'checkedOut', dataType: 'File' },
+		]);
+		await expect(service.checkin({ comment: 'test', all: true }))
+			.rejects.toThrow('No files with real changes');
+	});
+
+	it('checkin throws if no staged and all=false', async () => {
+		const service = makeService([
+			{ path: 'Assets/foo.cs', changeType: 'changed', dataType: 'File' },
+		]);
+		await expect(service.checkin({ comment: 'test' }))
+			.rejects.toThrow('No files staged');
+	});
+});
