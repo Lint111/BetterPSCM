@@ -516,7 +516,7 @@ export class CliBackend implements PlasticBackend {
 		}
 		return parseReviewCommentXml(result.stdout);
 	}
-	async addReviewComment(): Promise<ReviewCommentInfo> { throw new NotSupportedError('addReviewComment', this.name); }
+	async addReviewComment(): Promise<ReviewCommentInfo> { throw new NotSupportedError('addReviewComment', 'cm CLI (requires REST API backend for writing review comments)'); }
 	async getReviewers(reviewId: number): Promise<ReviewerInfo[]> {
 		const result = await execCm([
 			'find', 'reviewcomment',
@@ -529,9 +529,9 @@ export class CliBackend implements PlasticBackend {
 		}
 		return extractReviewersFromComments(result.stdout);
 	}
-	async addReviewers(): Promise<void> { throw new NotSupportedError('addReviewers', this.name); }
-	async removeReviewer(): Promise<void> { throw new NotSupportedError('removeReviewer', this.name); }
-	async updateReviewerStatus(): Promise<void> { throw new NotSupportedError('updateReviewerStatus', this.name); }
+	async addReviewers(): Promise<void> { throw new NotSupportedError('addReviewers', 'cm CLI (requires REST API backend for managing reviewers)'); }
+	async removeReviewer(): Promise<void> { throw new NotSupportedError('removeReviewer', 'cm CLI (requires REST API backend for managing reviewers)'); }
+	async updateReviewerStatus(): Promise<void> { throw new NotSupportedError('updateReviewerStatus', 'cm CLI (requires REST API backend for managing reviewers)'); }
 
 	// Phase 5 — Labels
 	async listLabels(): Promise<LabelInfo[]> {

@@ -559,11 +559,23 @@ describe('CliBackend', () => {
 		});
 	});
 
-	describe('code review methods (CLI)', () => {
-		it('addReviewComment throws NotSupportedError', async () => {
+	describe('unsupported review operations', () => {
+		it('addReviewComment throws NotSupportedError with REST API message', async () => {
 			await expect(backend.addReviewComment({
 				reviewId: 1, text: 'test',
-			})).rejects.toThrow('not supported');
+			})).rejects.toThrow('REST API');
+		});
+		it('addReviewers throws NotSupportedError', async () => {
+			await expect(backend.addReviewers(1, ['user@test.com']))
+				.rejects.toThrow('REST API');
+		});
+		it('removeReviewer throws NotSupportedError', async () => {
+			await expect(backend.removeReviewer(1, 'user@test.com'))
+				.rejects.toThrow('REST API');
+		});
+		it('updateReviewerStatus throws NotSupportedError', async () => {
+			await expect(backend.updateReviewerStatus(1, 'user@test.com', 'Reviewed'))
+				.rejects.toThrow('REST API');
 		});
 	});
 
