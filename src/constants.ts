@@ -26,6 +26,10 @@ export const COMMANDS = {
 	mergeTo: 'plasticScm.mergeTo',
 	createCodeReview: 'plasticScm.createCodeReview',
 	openCodeReview: 'plasticScm.openCodeReview',
+	inspectReviewComments: 'plasticScm.inspectReviewComments',
+	nextReviewComment: 'plasticScm.nextReviewComment',
+	prevReviewComment: 'plasticScm.prevReviewComment',
+	exportReviewAudit: 'plasticScm.exportReviewAudit',
 	createLabel: 'plasticScm.createLabel',
 	update: 'plasticScm.update',
 	showFileHistory: 'plasticScm.showFileHistory',
@@ -33,6 +37,10 @@ export const COMMANDS = {
 	showHistoryGraph: 'plasticScm.showHistoryGraph',
 	login: 'plasticScm.login',
 	logout: 'plasticScm.logout',
+	listLockRules: 'plasticScm.listLockRules',
+	createLockRule: 'plasticScm.createLockRule',
+	deleteLockRules: 'plasticScm.deleteLockRules',
+	releaseLocks: 'plasticScm.releaseLocks',
 } as const;
 
 export const SETTINGS = {

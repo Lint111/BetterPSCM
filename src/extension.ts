@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { initAuth, hasStoredCredentials, createAuthMiddleware, loginWithToken, loginWithPAT, logout } from './api/auth';
 import { getClient, getOrgName, getWorkspaceGuid, resetClient } from './api/client';
-import { isConfigured } from './util/config';
+import { isConfigured, getConfig } from './util/config';
 import { log, logError } from './util/logger';
 import { DisposableStore } from './util/disposable';
 import { PlasticScmProvider } from './scm/plasticScmProvider';
@@ -16,7 +16,13 @@ import { registerHistoryCommands } from './commands/history';
 import { registerMergeCommands } from './commands/merge';
 import { registerLabelCommands } from './commands/label';
 import { registerAuthCommands } from './commands/auth';
+import { registerLockCommands } from './commands/lock';
+import { McpServerManager } from './mcp/manager';
+import { registerMcpServerDefinition } from './mcp/definitionProvider';
 import { CodeReviewsTreeProvider } from './views/codeReviewsTreeProvider';
+import { ReviewCommentsTreeProvider } from './views/reviewCommentsTreeProvider';
+import { ReviewNavigationController } from './providers/reviewNavigationController';
+import { ReviewDecorationProvider } from './providers/reviewDecorationProvider';
 import { HistoryGraphViewProvider } from './views/historyGraphPanel';
 import { COMMANDS, SETTINGS } from './constants';
 import { detectWorkspace, detectClientConfig, detectCachedToken, hasPlasticWorkspace } from './util/plasticDetector';
@@ -205,6 +211,7 @@ async function setupProvider(context: vscode.ExtensionContext): Promise<void> {
 	registerHistoryCommands(context);
 	registerMergeCommands(context, provider);
 	registerLabelCommands(context);
+	registerLockCommands(context);
 
 	// Register code reviews tree view
 	const codeReviewsTree = new CodeReviewsTreeProvider();
@@ -214,7 +221,25 @@ async function setupProvider(context: vscode.ExtensionContext): Promise<void> {
 			treeDataProvider: codeReviewsTree,
 		}),
 	);
-	registerCodeReviewCommands(context, codeReviewsTree);
+
+	// Register review comments tree view
+	const reviewCommentsTree = new ReviewCommentsTreeProvider();
+	disposables.add(reviewCommentsTree);
+	context.subscriptions.push(
+		vscode.window.createTreeView('plasticScm.reviewCommentsView', {
+			treeDataProvider: reviewCommentsTree,
+		}),
+	);
+
+	// Navigation controller for next/back traversal
+	const navController = new ReviewNavigationController();
+	disposables.add(navController);
+
+	// Inline decorations for review comments
+	const decorationProvider = new ReviewDecorationProvider();
+	disposables.add(decorationProvider);
+
+	registerCodeReviewCommands(context, codeReviewsTree, reviewCommentsTree, navController, decorationProvider);
 
 	// Register history graph in the Source Control sidebar
 	const historyGraphProvider = new HistoryGraphViewProvider(context.extensionUri);
@@ -244,11 +269,27 @@ async function setupProvider(context: vscode.ExtensionContext): Promise<void> {
 		log('No stored credentials. Polling will attempt unauthenticated requests.');
 	}
 
+	// Register MCP server definition so VS Code agents can discover it automatically
+	registerMcpServerDefinition(context, wsFolder.uri.fsPath);
+
+	// Start MCP server if enabled (for standalone stdio consumers)
+	const mcpManager = disposables.add(new McpServerManager(context.extensionUri, wsFolder.uri.fsPath));
+	if (getConfig().mcpEnabled) {
+		mcpManager.start();
+	}
+
 	// Watch for config changes
 	context.subscriptions.push(
 		vscode.workspace.onDidChangeConfiguration(e => {
 			if (e.affectsConfiguration('plasticScm')) {
 				log('Configuration changed, consider restarting the extension');
+				if (e.affectsConfiguration('plasticScm.mcp.enabled')) {
+					if (getConfig().mcpEnabled) {
+						mcpManager.start();
+					} else {
+						mcpManager.stop();
+					}
+				}
 			}
 		}),
 	);

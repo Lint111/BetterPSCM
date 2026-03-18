@@ -5,6 +5,36 @@
   "version": "0.1.0",
   "publisher": "betterscm",
   "license": "MIT",
+  "icon": "media/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/betterscm/plastic-scm-pro"
+  },
+  "homepage": "https://github.com/betterscm/plastic-scm-pro#readme",
+  "bugs": {
+    "url": "https://github.com/betterscm/plastic-scm-pro/issues"
+  },
+  "keywords": [
+    "plastic scm",
+    "unity version control",
+    "scm",
+    "version control",
+    "source control",
+    "mcp",
+    "plastic",
+    "unity"
+  ],
+  "preview": true,
+  "galleryBanner": {
+    "color": "#1e1e1e",
+    "theme": "dark"
+  },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "This extension executes Plastic SCM CLI commands and makes REST API calls."
+    }
+  },
   "engines": {
     "vscode": "^1.95.0"
   },
@@ -107,6 +137,30 @@
         "category": "Plastic SCM"
       },
       {
+        "command": "plasticScm.inspectReviewComments",
+        "title": "Inspect Review Comments",
+        "icon": "$(comment-discussion)",
+        "category": "Plastic SCM"
+      },
+      {
+        "command": "plasticScm.nextReviewComment",
+        "title": "Next Review Comment",
+        "icon": "$(arrow-down)",
+        "category": "Plastic SCM"
+      },
+      {
+        "command": "plasticScm.prevReviewComment",
+        "title": "Previous Review Comment",
+        "icon": "$(arrow-up)",
+        "category": "Plastic SCM"
+      },
+      {
+        "command": "plasticScm.exportReviewAudit",
+        "title": "Export Review Audit",
+        "icon": "$(export)",
+        "category": "Plastic SCM"
+      },
+      {
         "command": "plasticScm.createLabel",
         "title": "Create Label...",
         "category": "Plastic SCM"
@@ -141,6 +195,26 @@
         "command": "plasticScm.showHistoryGraph",
         "title": "Show History Graph",
         "icon": "$(git-commit)",
+        "category": "Plastic SCM"
+      },
+      {
+        "command": "plasticScm.listLockRules",
+        "title": "List Lock Rules",
+        "category": "Plastic SCM"
+      },
+      {
+        "command": "plasticScm.createLockRule",
+        "title": "Create Lock Rule...",
+        "category": "Plastic SCM"
+      },
+      {
+        "command": "plasticScm.deleteLockRules",
+        "title": "Delete All Lock Rules",
+        "category": "Plastic SCM"
+      },
+      {
+        "command": "plasticScm.releaseLocks",
+        "title": "Release Locks...",
         "category": "Plastic SCM"
       }
     ],
@@ -226,12 +300,32 @@
           "command": "plasticScm.openCodeReview",
           "when": "view == plasticScm.codeReviewsView && viewItem == codeReview",
           "group": "navigation"
+        },
+        {
+          "command": "plasticScm.inspectReviewComments",
+          "when": "view == plasticScm.codeReviewsView && viewItem == codeReview",
+          "group": "navigation"
         }
       ],
       "view/title": [
         {
           "command": "plasticScm.createCodeReview",
           "when": "view == plasticScm.codeReviewsView",
+          "group": "navigation"
+        },
+        {
+          "command": "plasticScm.nextReviewComment",
+          "when": "view == plasticScm.reviewCommentsView",
+          "group": "navigation"
+        },
+        {
+          "command": "plasticScm.prevReviewComment",
+          "when": "view == plasticScm.reviewCommentsView",
+          "group": "navigation"
+        },
+        {
+          "command": "plasticScm.exportReviewAudit",
+          "when": "view == plasticScm.reviewCommentsView",
           "group": "navigation"
         }
       ],
@@ -253,6 +347,12 @@
         }
       ]
     },
+    "mcpServerDefinitionProviders": [
+      {
+        "id": "plasticScmMcp",
+        "label": "Plastic SCM"
+      }
+    ],
     "views": {
       "scm": [
         {
@@ -265,6 +365,11 @@
           "id": "plasticScm.codeReviewsView",
           "name": "Code Reviews",
           "when": "plasticScm.isActive"
+        },
+        {
+          "id": "plasticScm.reviewCommentsView",
+          "name": "Review Comments",
+          "when": "plasticScm.isActive && plasticScm.reviewActive"
         }
       ]
     },
@@ -320,13 +425,23 @@
     "package": "vsce package"
   },
   "dependencies": {
-    "electron": "^41.0.0",
-    "openapi-fetch": "^0.13.0"
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "openapi-fetch": "^0.13.0",
+    "zod": "^3.25.76"
+  },
+  "optionalDependencies": {
+    "@esbuild/linux-x64": "^0.27.4",
+    "@esbuild/win32-x64": "^0.27.4",
+    "@rolldown/binding-linux-x64-gnu": "1.0.0-rc.9",
+    "@rolldown/binding-win32-x64-msvc": "^1.0.0-rc.9",
+    "@rollup/rollup-linux-x64-gnu": "^4.59.0",
+    "@rollup/rollup-win32-x64-msvc": "^4.59.0"
   },
   "devDependencies": {
     "@types/node": "^25.4.0",
     "@types/vscode": "^1.95.0",
     "@vscode/vsce": "^3.2.0",
+    "electron": "^41.0.0",
     "esbuild": "^0.27.4",
     "openapi-typescript": "^7.4.0",
     "typescript": "^5.7.0",
