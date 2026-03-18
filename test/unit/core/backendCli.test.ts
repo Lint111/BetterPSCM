@@ -816,6 +816,160 @@ describe('CliBackend', () => {
 		});
 	});
 
+	describe('getReviewComments', () => {
+		const xmlOutput = `<?xml version="1.0" encoding="utf-8" ?>
+<PLASTICQUERY>
+  <REVIEWCOMMENT>
+    <ID>43382</ID>
+    <OWNER>snoff4@icloud.com</OWNER>
+    <DATE>2026-02-17T15:11:51+02:00</DATE>
+    <COMMENT>[description]Initial feature creation of the UCT.</COMMENT>
+    <REVISIONID>-1</REVISIONID>
+    <REVIEWID>43381</REVIEWID>
+    <LOCATION>-1</LOCATION>
+  </REVIEWCOMMENT>
+  <REVIEWCOMMENT>
+    <ID>43386</ID>
+    <OWNER>theo.muenster@outlook.com</OWNER>
+    <DATE>2026-02-17T15:15:32+02:00</DATE>
+    <COMMENT>Any reason to keep these comments?</COMMENT>
+    <REVISIONID>42939</REVISIONID>
+    <REVIEWID>43381</REVIEWID>
+    <LOCATION>37</LOCATION>
+  </REVIEWCOMMENT>
+  <REVIEWCOMMENT>
+    <ID>43400</ID>
+    <OWNER>theo.muenster@outlook.com</OWNER>
+    <DATE>2026-02-17T15:36:40+02:00</DATE>
+    <COMMENT>[status-rework-required]Apply the feedback.</COMMENT>
+    <REVISIONID>-1</REVISIONID>
+    <REVIEWID>43381</REVIEWID>
+    <LOCATION>-1</LOCATION>
+  </REVIEWCOMMENT>
+  <REVIEWCOMMENT>
+    <ID>43401</ID>
+    <OWNER>snoff4@icloud.com</OWNER>
+    <DATE>2026-02-17T15:15:23+02:00</DATE>
+    <COMMENT>[requested-review-from-theo.muenster@outlook.com]</COMMENT>
+    <REVISIONID>-1</REVISIONID>
+    <REVIEWID>43381</REVIEWID>
+    <LOCATION>-1</LOCATION>
+  </REVIEWCOMMENT>
+</PLASTICQUERY>`;
+
+		it('parses XML and returns correct number of comments (filters requested-review-from)', async () => {
+			mockExecCm.mockResolvedValue({
+				stdout: xmlOutput,
+				stderr: '',
+				exitCode: 0,
+			});
+
+			const comments = await backend.getReviewComments(43381);
+			expect(comments).toHaveLength(3);
+		});
+
+		it('inline comment has correct locationSpec and type Comment', async () => {
+			mockExecCm.mockResolvedValue({
+				stdout: xmlOutput,
+				stderr: '',
+				exitCode: 0,
+			});
+
+			const comments = await backend.getReviewComments(43381);
+			const inline = comments.find(c => c.id === 43386);
+			expect(inline).toBeDefined();
+			expect(inline!.locationSpec).toBe('42939#37');
+			expect(inline!.type).toBe('Comment');
+			expect(inline!.text).toBe('Any reason to keep these comments?');
+		});
+
+		it('[status-rework-required] maps to StatusReworkRequired with stripped prefix', async () => {
+			mockExecCm.mockResolvedValue({
+				stdout: xmlOutput,
+				stderr: '',
+				exitCode: 0,
+			});
+
+			const comments = await backend.getReviewComments(43381);
+			const status = comments.find(c => c.id === 43400);
+			expect(status).toBeDefined();
+			expect(status!.type).toBe('StatusReworkRequired');
+			expect(status!.text).toBe('Apply the feedback.');
+		});
+
+		it('[requested-review-from-...] events are filtered out', async () => {
+			mockExecCm.mockResolvedValue({
+				stdout: xmlOutput,
+				stderr: '',
+				exitCode: 0,
+			});
+
+			const comments = await backend.getReviewComments(43381);
+			const ids = comments.map(c => c.id);
+			expect(ids).not.toContain(43401);
+		});
+
+		it('passes reviewid in where clause', async () => {
+			mockExecCm.mockResolvedValue({
+				stdout: '<?xml version="1.0" encoding="utf-8" ?>\n<PLASTICQUERY>\n</PLASTICQUERY>',
+				stderr: '',
+				exitCode: 0,
+			});
+
+			await backend.getReviewComments(43381);
+			const args = mockExecCm.mock.calls[0][0];
+			expect(args).toContain('where reviewid=43381');
+		});
+
+		it('empty PLASTICQUERY returns []', async () => {
+			mockExecCm.mockResolvedValue({
+				stdout: '<?xml version="1.0" encoding="utf-8" ?>\n<PLASTICQUERY>\n</PLASTICQUERY>',
+				stderr: '',
+				exitCode: 0,
+			});
+
+			const comments = await backend.getReviewComments(43381);
+			expect(comments).toEqual([]);
+		});
+
+		it('multiline comment text preserved', async () => {
+			const multilineXml = `<?xml version="1.0" encoding="utf-8" ?>
+<PLASTICQUERY>
+  <REVIEWCOMMENT>
+    <ID>50001</ID>
+    <OWNER>user@test.com</OWNER>
+    <DATE>2026-03-18T10:00:00+02:00</DATE>
+    <COMMENT>First line.
+Second line.
+Third line.</COMMENT>
+    <REVISIONID>-1</REVISIONID>
+    <REVIEWID>43381</REVIEWID>
+    <LOCATION>-1</LOCATION>
+  </REVIEWCOMMENT>
+</PLASTICQUERY>`;
+
+			mockExecCm.mockResolvedValue({
+				stdout: multilineXml,
+				stderr: '',
+				exitCode: 0,
+			});
+
+			const comments = await backend.getReviewComments(43381);
+			expect(comments).toHaveLength(1);
+			expect(comments[0].text).toBe('First line.\nSecond line.\nThird line.');
+		});
+
+		it('throws on cm failure', async () => {
+			mockExecCm.mockResolvedValue({
+				stdout: '',
+				stderr: 'error',
+				exitCode: 1,
+			});
+
+			await expect(backend.getReviewComments(43381)).rejects.toThrow('cm find reviewcomment failed');
+		});
+	});
+
 	describe('lock methods (CLI)', () => {
 		it('listLockRules throws NotSupportedError', async () => {
 			await expect(backend.listLockRules()).rejects.toThrow('not supported');

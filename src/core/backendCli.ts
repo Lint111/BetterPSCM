@@ -14,6 +14,7 @@ import type {
 	UpdateResult,
 	CodeReviewInfo,
 	ReviewCommentInfo,
+	ReviewCommentType,
 	ReviewerInfo,
 	CreateReviewParams,
 	CreateCommentParams,
@@ -503,7 +504,18 @@ export class CliBackend implements PlasticBackend {
 			throw new Error(`cm codereview edit failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
 		}
 	}
-	async getReviewComments(): Promise<ReviewCommentInfo[]> { throw new NotSupportedError('getReviewComments', this.name); }
+	async getReviewComments(reviewId: number): Promise<ReviewCommentInfo[]> {
+		const result = await execCm([
+			'find', 'reviewcomment',
+			`where reviewid=${reviewId}`,
+			'--xml',
+			'--nototal',
+		]);
+		if (result.exitCode !== 0) {
+			throw new Error(`cm find reviewcomment failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
+		}
+		return parseReviewCommentXml(result.stdout);
+	}
 	async addReviewComment(): Promise<ReviewCommentInfo> { throw new NotSupportedError('addReviewComment', this.name); }
 	async getReviewers(): Promise<ReviewerInfo[]> { throw new NotSupportedError('getReviewers', this.name); }
 	async addReviewers(): Promise<void> { throw new NotSupportedError('addReviewers', this.name); }
@@ -942,6 +954,68 @@ function parseReviewLine(line: string): CodeReviewInfo | undefined {
 		commentsCount: 0,
 		reviewers: [],
 	};
+}
+
+export function classifyComment(raw: string): { type: ReviewCommentType; text: string } {
+	if (raw.startsWith('[status-reviewed]')) {
+		return { type: 'StatusReviewed', text: raw.substring('[status-reviewed]'.length) };
+	}
+	if (raw.startsWith('[status-rework-required]')) {
+		return { type: 'StatusReworkRequired', text: raw.substring('[status-rework-required]'.length) };
+	}
+	if (raw.startsWith('[status-under-review]')) {
+		return { type: 'StatusUnderReview', text: raw.substring('[status-under-review]'.length) };
+	}
+	if (raw.startsWith('[description]')) {
+		return { type: 'Comment', text: raw.substring('[description]'.length) };
+	}
+	return { type: 'Comment', text: raw };
+}
+
+export function parseReviewCommentXml(xml: string): ReviewCommentInfo[] {
+	const comments: ReviewCommentInfo[] = [];
+	const blockRegex = /<REVIEWCOMMENT>([\s\S]*?)<\/REVIEWCOMMENT>/g;
+	let blockMatch: RegExpExecArray | null;
+
+	while ((blockMatch = blockRegex.exec(xml)) !== null) {
+		const block = blockMatch[1];
+
+		const extractField = (tag: string): string => {
+			const m = block.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`));
+			return m ? m[1] : '';
+		};
+
+		const rawComment = extractField('COMMENT');
+
+		// Filter out reviewer-request events
+		if (rawComment.startsWith('[requested-review-from-')) {
+			continue;
+		}
+
+		const id = parseInt(extractField('ID'), 10);
+		const owner = extractField('OWNER');
+		const date = extractField('DATE');
+		const revisionId = parseInt(extractField('REVISIONID'), 10);
+		const reviewId = parseInt(extractField('REVIEWID'), 10);
+		const location = parseInt(extractField('LOCATION'), 10);
+
+		const { type, text } = classifyComment(rawComment);
+
+		const locationSpec = revisionId > 0 && location >= 0
+			? `${revisionId}#${location}`
+			: undefined;
+
+		comments.push({
+			id,
+			owner,
+			text,
+			type,
+			timestamp: date,
+			locationSpec,
+		});
+	}
+
+	return comments;
 }
 
 function parseAnnotateOutput(stdout: string): BlameLine[] {
