@@ -980,6 +980,24 @@ Third line.</COMMENT>
 
 			await expect(backend.getReviewComments(43381)).rejects.toThrow('cm find reviewcomment failed');
 		});
+
+		it('populates itemName when revisionId is positive', async () => {
+			const xml = `<REVIEWCOMMENT>
+				<ID>100</ID>
+				<OWNER>theo</OWNER>
+				<DATE>2026-02-17T15:00:00</DATE>
+				<COMMENT>Fix this</COMMENT>
+				<REVISIONID>42939</REVISIONID>
+				<REVIEWID>1</REVIEWID>
+				<LOCATION>37</LOCATION>
+			</REVIEWCOMMENT>`;
+
+			mockExecCm.mockResolvedValue({ stdout: xml, stderr: '', exitCode: 0 });
+			const comments = await backend.getReviewComments(1);
+
+			expect(comments[0].locationSpec).toBe('42939#37');
+			expect(comments[0].itemName).toBe('revid:42939');
+		});
 	});
 
 	describe('getReviewers', () => {

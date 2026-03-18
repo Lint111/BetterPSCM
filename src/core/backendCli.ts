@@ -1047,6 +1047,10 @@ export function parseReviewCommentXml(xml: string): ReviewCommentInfo[] {
 			? `${revisionId}#${location}`
 			: undefined;
 
+		const itemName = revisionId > 0
+			? `revid:${revisionId}`
+			: undefined;
+
 		comments.push({
 			id,
 			owner,
@@ -1054,6 +1058,7 @@ export function parseReviewCommentXml(xml: string): ReviewCommentInfo[] {
 			type,
 			timestamp: date,
 			locationSpec,
+			itemName,
 		});
 	}
 
