@@ -662,6 +662,95 @@ describe('CliBackend', () => {
 		});
 	});
 
+	describe('createCodeReview', () => {
+		it('creates review for a changeset', async () => {
+			// First call: cm codereview create returns new ID
+			mockExecCm.mockResolvedValueOnce({
+				stdout: '99001\n',
+				stderr: '',
+				exitCode: 0,
+			});
+			// Second call: getCodeReview fetches the created review
+			mockExecCm.mockResolvedValueOnce({
+				stdout: '99001#My review#Status Under review#me@test.com#01/01/2026 10:00:00#Changeset#100#\n',
+				stderr: '',
+				exitCode: 0,
+			});
+
+			const review = await backend.createCodeReview({
+				title: 'My review',
+				targetType: 'Changeset',
+				targetId: 100,
+			});
+			expect(review.id).toBe(99001);
+			expect(review.title).toBe('My review');
+
+			const createArgs = mockExecCm.mock.calls[0][0];
+			expect(createArgs).toContain('cs:100');
+			expect(createArgs).toContain('My review');
+		});
+
+		it('creates review for a branch with spec', async () => {
+			mockExecCm.mockResolvedValueOnce({
+				stdout: '99002\n',
+				stderr: '',
+				exitCode: 0,
+			});
+			mockExecCm.mockResolvedValueOnce({
+				stdout: '99002#Branch review#Status Under review#me@test.com#01/01/2026 10:00:00#Branch#/main/feature#\n',
+				stderr: '',
+				exitCode: 0,
+			});
+
+			await backend.createCodeReview({
+				title: 'Branch review',
+				targetType: 'Branch',
+				targetId: 0,
+				targetSpec: '/main/feature',
+			});
+
+			const createArgs = mockExecCm.mock.calls[0][0];
+			expect(createArgs).toContain('br:/main/feature');
+		});
+
+		it('passes --assignee when reviewers provided', async () => {
+			mockExecCm.mockResolvedValueOnce({
+				stdout: '99003\n',
+				stderr: '',
+				exitCode: 0,
+			});
+			mockExecCm.mockResolvedValueOnce({
+				stdout: '99003#Review#Status Under review#me@test.com#01/01/2026 10:00:00#Changeset#50#bob@test.com\n',
+				stderr: '',
+				exitCode: 0,
+			});
+
+			await backend.createCodeReview({
+				title: 'Review',
+				targetType: 'Changeset',
+				targetId: 50,
+				reviewers: ['bob@test.com'],
+			});
+
+			const createArgs = mockExecCm.mock.calls[0][0];
+			expect(createArgs).toContain('--assignee=bob@test.com');
+		});
+
+		it('throws on cm failure', async () => {
+			mockExecCm.mockResolvedValue({
+				stdout: '',
+				stderr: 'something went wrong',
+				exitCode: 1,
+			});
+
+			await expect(backend.createCodeReview({
+				title: 'Bad review',
+				targetType: 'Changeset',
+				targetId: 1,
+			})).rejects.toThrow('cm codereview create failed');
+		});
+	});
+
 	describe('getCodeReview', () => {
 		it('returns single review by ID', async () => {
 			mockExecCm.mockResolvedValue({

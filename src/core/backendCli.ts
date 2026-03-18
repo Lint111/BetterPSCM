@@ -461,7 +461,35 @@ export class CliBackend implements PlasticBackend {
 		}
 		return reviews[0];
 	}
-	async createCodeReview(): Promise<CodeReviewInfo> { throw new NotSupportedError('createCodeReview', this.name); }
+	async createCodeReview(params: CreateReviewParams): Promise<CodeReviewInfo> {
+		let spec: string;
+		if (params.targetSpec) {
+			spec = params.targetType === 'Branch'
+				? `br:${params.targetSpec}`
+				: `cs:${params.targetSpec}`;
+		} else {
+			spec = params.targetType === 'Branch'
+				? `br:id:${params.targetId}`
+				: `cs:${params.targetId}`;
+		}
+
+		const args = ['codereview', spec, params.title, '--format={id}'];
+		if (params.reviewers && params.reviewers.length > 0) {
+			args.push(`--assignee=${params.reviewers[0]}`);
+		}
+
+		const result = await execCm(args);
+		if (result.exitCode !== 0) {
+			throw new Error(`cm codereview create failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
+		}
+
+		const newId = parseInt(result.stdout.trim(), 10);
+		if (isNaN(newId)) {
+			throw new Error(`cm codereview returned unexpected output: ${result.stdout}`);
+		}
+
+		return this.getCodeReview(newId);
+	}
 	async deleteCodeReview(): Promise<void> { throw new NotSupportedError('deleteCodeReview', this.name); }
 	async updateCodeReviewStatus(): Promise<void> { throw new NotSupportedError('updateCodeReviewStatus', this.name); }
 	async getReviewComments(): Promise<ReviewCommentInfo[]> { throw new NotSupportedError('getReviewComments', this.name); }
