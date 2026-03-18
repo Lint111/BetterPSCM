@@ -9,7 +9,7 @@ export class CodeReviewsTreeProvider implements vscode.TreeDataProvider<ReviewTr
 	private readonly _onDidChangeTreeData = new vscode.EventEmitter<void>();
 	readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
-	private _filter: ReviewFilter = 'pending';
+	private _filter: ReviewFilter = 'all';
 	private _reviews: CodeReviewInfo[] = [];
 
 	get filter(): ReviewFilter { return this._filter; }
