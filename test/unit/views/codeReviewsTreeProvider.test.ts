@@ -38,8 +38,8 @@ describe('CodeReviewsTreeProvider', () => {
 		provider = new CodeReviewsTreeProvider();
 	});
 
-	it('starts with pending filter', () => {
-		expect(provider.filter).toBe('pending');
+	it('starts with all filter', () => {
+		expect(provider.filter).toBe('all');
 	});
 
 	it('returns review items', async () => {
