@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import * as vscode from '../../mocks/vscode';
 import { workspace } from '../../mocks/vscode';
 
 vi.mock('../../../src/core/cmCli', () => ({
@@ -6,13 +7,15 @@ vi.mock('../../../src/core/cmCli', () => ({
 }));
 
 import { isCmAvailable } from '../../../src/core/cmCli';
-import { getConfig, isConfigured } from '../../../src/util/config';
+import { getConfig, isConfigured, setVscModule } from '../../../src/util/config';
 
 const mockIsCmAvailable = vi.mocked(isCmAvailable);
 
 describe('getConfig', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		// Ensure vscode mock is injected (require('vscode') may not resolve in test env)
+		setVscModule(vscode as any);
 	});
 
 	it('returns config with defaults', () => {
@@ -27,6 +30,7 @@ describe('isConfigured', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockIsCmAvailable.mockReturnValue(false);
+		setVscModule(vscode as any);
 	});
 
 	it('returns false when nothing is configured', () => {

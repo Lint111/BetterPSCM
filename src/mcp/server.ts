@@ -23,7 +23,9 @@ import { PlasticService } from '../core/service';
 import { InMemoryStagingStore } from '../core/stagingStore';
 import { BULK_OPERATION_THRESHOLD, UNITY_CRITICAL_EXTENSIONS } from '../core/safety';
 import { resolveConfig } from '../util/configResolver';
+import { initDetectedConfig } from '../util/config';
 import { detectWorkspace, detectCachedToken } from '../util/plasticDetector';
+import { getClient, setOrgNameHints } from '../api/client';
 import { HybridBackend } from '../core/backendHybrid';
 import { RestBackend } from '../core/backendRest';
 import { buildReviewAudit } from './reviewAudit.js';
@@ -1045,27 +1047,12 @@ async function trySetupHybridBackend(workspacePath: string): Promise<boolean> {
 		return false;
 	}
 
-	// Monkey-patch getConfig for REST backend (no vscode in MCP server context)
-	try {
-		const configModule = await import('../util/config.js');
-		(configModule as any).getConfig = () => ({
-			serverUrl: config.serverUrl,
-			organizationName: config.organizationName,
-			repositoryName: config.repositoryName,
-			workspaceGuid: config.workspaceGuid,
-			pollInterval: 3000,
-			showPrivateFiles: true,
-			mcpEnabled: true,
-		});
-	} catch (err) {
-		process.stderr.write(`Failed to patch config: ${err}\n`);
-		return false;
-	}
+	// Initialize detection-first config so getConfig() works without vscode
+	initDetectedConfig(workspacePath);
 
 	// Set up REST client with SSO token as Bearer auth
 	try {
-		const clientModule = await import('../api/client.js');
-		const client = clientModule.getClient();
+		const client = getClient();
 		client.use({
 			async onRequest({ request }: { request: Request }) {
 				request.headers.set('Authorization', `Bearer ${cachedToken.token}`);
@@ -1079,7 +1066,7 @@ async function trySetupHybridBackend(workspacePath: string): Promise<boolean> {
 			const hints: string[] = [];
 			if (wsInfo.cloudServerId) hints.push(wsInfo.cloudServerId);
 			if (wsInfo.organizationName) hints.push(wsInfo.organizationName);
-			if (hints.length > 0) clientModule.setOrgNameHints(hints);
+			if (hints.length > 0) setOrgNameHints(hints);
 		}
 
 		process.stderr.write(`REST API configured: org="${config.organizationName}", repo="${config.repositoryName}", user="${cachedToken.user}"\n`);
