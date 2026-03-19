@@ -22,6 +22,10 @@ import { createBackup, listBackups, getBackupManifest, restoreBackup } from './b
 import { PlasticService } from '../core/service';
 import { InMemoryStagingStore } from '../core/stagingStore';
 import { BULK_OPERATION_THRESHOLD, UNITY_CRITICAL_EXTENSIONS } from '../core/safety';
+import { resolveConfig } from '../util/configResolver';
+import { detectWorkspace, detectCachedToken } from '../util/plasticDetector';
+import { HybridBackend } from '../core/backendHybrid';
+import { RestBackend } from '../core/backendRest';
 
 // ── Standalone logger (stderr, no vscode) ────────────────────────────
 
@@ -995,6 +999,72 @@ server.registerPrompt(
 	},
 );
 
+// ── Hybrid backend setup ─────────────────────────────────────────────
+
+/**
+ * Attempt to set up hybrid backend by resolving config from .plastic folder
+ * and reading cached SSO token. Returns true if REST API is available.
+ */
+async function trySetupHybridBackend(workspacePath: string): Promise<boolean> {
+	const config = resolveConfig(workspacePath);
+	if (!config || !config.serverUrl || !config.organizationName) {
+		process.stderr.write('No workspace config detected — REST API unavailable\n');
+		return false;
+	}
+
+	const cachedToken = detectCachedToken();
+	if (!cachedToken) {
+		process.stderr.write('No cached SSO token — REST API unavailable\n');
+		return false;
+	}
+
+	// Monkey-patch getConfig for REST backend (no vscode in MCP server context)
+	try {
+		const configModule = await import('../util/config.js');
+		(configModule as any).getConfig = () => ({
+			serverUrl: config.serverUrl,
+			organizationName: config.organizationName,
+			repositoryName: config.repositoryName,
+			workspaceGuid: config.workspaceGuid,
+			pollInterval: 3000,
+			showPrivateFiles: true,
+			mcpEnabled: true,
+		});
+	} catch (err) {
+		process.stderr.write(`Failed to patch config: ${err}\n`);
+		return false;
+	}
+
+	// Set up REST client with SSO token as Bearer auth
+	try {
+		const clientModule = await import('../api/client.js');
+		const client = clientModule.getClient();
+		client.use({
+			async onRequest({ request }: { request: Request }) {
+				request.headers.set('Authorization', `Bearer ${cachedToken.token}`);
+				return request;
+			},
+		});
+
+		// Set org name hints (numeric server ID is most reliable for API calls)
+		const wsInfo = detectWorkspace(workspacePath);
+		if (wsInfo) {
+			const hints: string[] = [];
+			if (wsInfo.cloudServerId) hints.push(wsInfo.cloudServerId);
+			if (wsInfo.organizationName) hints.push(wsInfo.organizationName);
+			if (hints.length > 0) clientModule.setOrgNameHints(hints);
+		}
+
+		process.stderr.write(`REST API configured: org="${config.organizationName}", repo="${config.repositoryName}", user="${cachedToken.user}"\n`);
+	} catch (err) {
+		process.stderr.write(`REST client setup failed: ${err}\n`);
+		return false;
+	}
+
+	setBackend(new HybridBackend(new CliBackend(), new RestBackend()));
+	return true;
+}
+
 // ── Main ─────────────────────────────────────────────────────────────
 
 async function main() {
@@ -1008,8 +1078,11 @@ async function main() {
 		process.exit(1);
 	}
 
-	setBackend(new CliBackend());
-	process.stderr.write(`Plastic SCM MCP server started (workspace: ${workspace})\n`);
+	const hybridReady = await trySetupHybridBackend(workspace);
+	if (!hybridReady) {
+		setBackend(new CliBackend());
+	}
+	process.stderr.write(`Plastic SCM MCP server started (${hybridReady ? 'hybrid' : 'CLI-only'} backend, workspace: ${workspace})\n`);
 
 	// Connect via stdio
 	const transport = new StdioServerTransport();
