@@ -2,7 +2,7 @@
 /**
  * Plastic SCM MCP Server — standalone process for AI agent integration.
  *
- * Provides 18 tools, 3 resources, and 2 prompts over stdio transport.
+ * Provides 19 tools, 3 resources, and 2 prompts over stdio transport.
  * Uses the cm CLI backend directly (no vscode dependency).
  *
  * Usage:
@@ -26,6 +26,7 @@ import { resolveConfig } from '../util/configResolver';
 import { detectWorkspace, detectCachedToken } from '../util/plasticDetector';
 import { HybridBackend } from '../core/backendHybrid';
 import { RestBackend } from '../core/backendRest';
+import { buildReviewAudit } from './reviewAudit.js';
 
 // ── Standalone logger (stderr, no vscode) ────────────────────────────
 
@@ -461,7 +462,33 @@ server.registerTool(
 	},
 );
 
-// 15. plastic_add — Add private files to source control
+// 15. plastic_get_review_audit — Full review audit with resolved comments
+server.registerTool(
+	'plastic_get_review_audit',
+	{
+		title: 'Get Code Review Audit',
+		description: `Get a code review's full audit log: review metadata plus all comments with resolved file paths and line numbers, grouped by file.
+
+Provide either reviewId (direct lookup) or branch (finds first review targeting that branch). Requires hybrid backend (auto-detected from Plastic desktop client SSO token).`,
+		inputSchema: z.object({
+			reviewId: z.number().optional().describe('Review ID for direct lookup'),
+			branch: z.string().optional().describe('Branch name — finds the first review targeting this branch'),
+		}),
+	},
+	async ({ reviewId, branch }) => {
+		try {
+			const result = await buildReviewAudit({ reviewId, branch });
+			return jsonResult(result);
+		} catch (err) {
+			if (err instanceof Error && err.name === 'NotSupportedError') {
+				return errorResult('Review comments require REST API. Sign in to the Plastic desktop client so the SSO token can be auto-detected.');
+			}
+			return errorResult(err instanceof Error ? err.message : String(err));
+		}
+	},
+);
+
+// 16. plastic_add — Add private files to source control
 server.registerTool(
 	'plastic_add',
 	{
@@ -499,7 +526,7 @@ Supports exact file paths and directory prefixes (e.g. "Assets/Scripts/AbilityCh
 	},
 );
 
-// 16. plastic_undo_checkout — Revert checkouts on specific files
+// 17. plastic_undo_checkout — Revert checkouts on specific files
 server.registerTool(
 	'plastic_undo_checkout',
 	{
@@ -668,7 +695,7 @@ To simply un-stage files without discarding changes, use plastic_unstage.`,
 	},
 );
 
-// 17. plastic_clean_stale — Auto-detect and undo stale checkouts
+// 18. plastic_clean_stale — Auto-detect and undo stale checkouts
 server.registerTool(
 	'plastic_clean_stale',
 	{
@@ -792,7 +819,7 @@ Run this before checkin to avoid commit failures from unchanged files.`,
 	},
 );
 
-// 18. plastic_restore_backup — List, preview, and restore from automatic backups
+// 19. plastic_restore_backup — List, preview, and restore from automatic backups
 server.registerTool(
 	'plastic_restore_backup',
 	{
