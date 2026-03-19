@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { initAuth, hasStoredCredentials, createAuthMiddleware, loginWithToken, loginWithPAT, logout } from './api/auth';
-import { getClient, getOrgName, getWorkspaceGuid, resetClient } from './api/client';
-import { isConfigured, getConfig } from './util/config';
+import { getClient, getOrgName, getOrgNameVariants, setResolvedOrgName, setOrgNameHints, getWorkspaceGuid, resetClient } from './api/client';
+import { isConfigured, getConfig, initDetectedConfig } from './util/config';
 import { log, logError } from './util/logger';
 import { DisposableStore } from './util/disposable';
 import { PlasticScmProvider } from './scm/plasticScmProvider';
@@ -30,6 +30,7 @@ import { detectCm, setCmWorkspaceRoot, isCmAvailable } from './core/cmCli';
 import { setBackend } from './core/backend';
 import { CliBackend } from './core/backendCli';
 import { RestBackend } from './core/backendRest';
+import { HybridBackend } from './core/backendHybrid';
 
 const disposables = new DisposableStore();
 
@@ -45,11 +46,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// Register stub commands for features not yet implemented (prevents "command not found")
 	registerStubCommands(context);
 
+	// Initialize detection-first config from .plastic folder
+	const wsFolder = vscode.workspace.workspaceFolders?.[0];
+	if (wsFolder) {
+		initDetectedConfig(wsFolder.uri.fsPath);
+	}
+
 	// Auto-detect workspace from .plastic folder if not yet configured
 	await autoDetectAndConfigure();
 
 	// Detect cm CLI early so isConfigured() can account for it
-	const wsFolder = vscode.workspace.workspaceFolders?.[0];
 	if (wsFolder) {
 		setCmWorkspaceRoot(wsFolder.uri.fsPath);
 		await detectCm();
@@ -105,6 +111,22 @@ async function autoDetectAndConfigure(): Promise<void> {
 	log(`  Org: ${info.organizationName}, Repo: ${info.repositoryName}`);
 	log(`  Branch: ${info.currentBranch}, Cloud: ${info.isCloud}`);
 
+	// Provide org name hints for REST API login fallback
+	if (info.isCloud) {
+		const hints: string[] = [];
+		if (info.cloudServerId) hints.push(info.cloudServerId);
+		if (info.displayOrgName && info.displayOrgName !== info.organizationName) {
+			hints.push(info.displayOrgName);
+			// Also try lowercase-hyphenated version of display name
+			const hyphenated = info.displayOrgName.toLowerCase().replace(/\s+/g, '-');
+			if (hyphenated !== info.organizationName) hints.push(hyphenated);
+		}
+		if (hints.length > 0) {
+			setOrgNameHints(hints);
+			log(`  Org name hints for REST API: ${hints.join(', ')}`);
+		}
+	}
+
 	const config = vscode.workspace.getConfiguration();
 
 	// Build list of settings that need to be populated
@@ -118,13 +140,13 @@ async function autoDetectAndConfigure(): Promise<void> {
 	const updates = desired.filter(([key, value]) => {
 		const current = config.get<string>(key);
 		if (!current) return true;
-		// Re-write serverUrl if the stored value is invalid
-		if (key === SETTINGS.serverUrl && !current.startsWith('http://') && !current.startsWith('https://')) {
-			log(`  Fixing invalid ${key}: "${current}" → "${value}"`);
+		// Re-write serverUrl if invalid or changed (e.g., wrong cloud region)
+		if (key === SETTINGS.serverUrl && current !== value) {
+			log(`  Updating ${key}: "${current}" → "${value}"`);
 			return true;
 		}
-		// Re-write organizationName if it changed (e.g., display name → slug)
-		if (key === SETTINGS.organizationName && current !== value) {
+		// Re-write organizationName or repositoryName if changed
+		if ((key === SETTINGS.organizationName || key === SETTINGS.repositoryName) && current !== value) {
 			log(`  Updating ${key}: "${current}" → "${value}"`);
 			return true;
 		}
@@ -187,8 +209,13 @@ async function setupProvider(context: vscode.ExtensionContext): Promise<void> {
 		hasCreds = await tryAutoLoginFromDesktopClient();
 	}
 
-	// Set the active backend: REST if authenticated, CLI as fallback
-	if (hasCreds) {
+	// Set the active backend:
+	// - Hybrid (CLI + REST) when both are available — CLI for workspace ops, REST for repo ops
+	// - REST-only if no CLI (unlikely but possible)
+	// - CLI-only if no REST auth
+	if (hasCreds && cmAvailable) {
+		setBackend(new HybridBackend(new CliBackend(), new RestBackend()));
+	} else if (hasCreds) {
 		setBackend(new RestBackend());
 	} else if (cmAvailable) {
 		log('REST API auth failed — using cm CLI backend');
@@ -239,7 +266,7 @@ async function setupProvider(context: vscode.ExtensionContext): Promise<void> {
 	const decorationProvider = new ReviewDecorationProvider();
 	disposables.add(decorationProvider);
 
-	registerCodeReviewCommands(context, codeReviewsTree, reviewCommentsTree, navController, decorationProvider);
+	registerCodeReviewCommands(context, codeReviewsTree, reviewCommentsTree, navController, decorationProvider, provider);
 
 	// Register history graph in the Source Control sidebar
 	const historyGraphProvider = new HistoryGraphViewProvider(context.extensionUri);
@@ -300,18 +327,36 @@ async function setupProvider(context: vscode.ExtensionContext): Promise<void> {
  * Returns true if credentials are valid.
  */
 async function validateCredentials(): Promise<boolean> {
-	try {
-		const client = getClient();
-		const orgName = getOrgName();
-		const workspaceGuid = getWorkspaceGuid();
-		await client.GET(
-			'/api/v1/organizations/{organizationName}/workspaces/{workspaceGuid}',
-			{ params: { path: { organizationName: orgName, workspaceGuid } } },
-		);
-		return true;
-	} catch {
-		return false;
+	const client = getClient();
+	const repoName = getConfig().repositoryName;
+	const variants = getOrgNameVariants();
+
+	log(`Validating credentials with ${variants.length} org variants: ${variants.join(', ')}`);
+
+	for (const orgName of variants) {
+		try {
+			log(`  Trying org "${orgName}"...`);
+			// Use code reviews endpoint as lightweight validation (workspace endpoints
+			// return 404 for locally-created workspaces that aren't cloud-registered)
+			const apiCall = client.GET(
+				'/api/v1/organizations/{orgName}/repos/{repoName}/codereviews' as any,
+				{ params: { path: { orgName, repoName }, query: { filter: 'All' } } },
+			);
+			// Race against a 10s timeout — we just need to know if creds work
+			const timeout = new Promise<never>((_, reject) =>
+				setTimeout(() => reject(new Error('Validation timed out (10s)')), 10_000),
+			);
+			await Promise.race([apiCall, timeout]);
+			setResolvedOrgName(orgName);
+			log(`  Validated credentials with org "${orgName}"`);
+			return true;
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			log(`  Org "${orgName}" failed: ${msg}`);
+		}
 	}
+	log('All org variants failed credential validation');
+	return false;
 }
 
 /**
