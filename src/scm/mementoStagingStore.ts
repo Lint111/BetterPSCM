@@ -8,7 +8,7 @@ interface Memento {
 
 type Listener = () => void;
 
-const MEMENTO_KEY = 'plasticScm.stagedPaths';
+const MEMENTO_KEY = 'bpscm.stagedPaths';
 
 /**
  * Staging store backed by VS Code workspace memento.

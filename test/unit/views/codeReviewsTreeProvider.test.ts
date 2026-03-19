@@ -61,7 +61,7 @@ describe('CodeReviewsTreeProvider', () => {
 	it('attaches open command to items', async () => {
 		mockListCodeReviews.mockResolvedValue([makeReview({ id: 42 })]);
 		const children = await provider.getChildren();
-		expect(children[0].command?.command).toBe('plasticScm.openCodeReview');
+		expect(children[0].command?.command).toBe('bpscm.openCodeReview');
 		expect(children[0].command?.arguments).toEqual([42]);
 	});
 

@@ -10,6 +10,7 @@ import {
 	listBranches, switchBranch, updateWorkspace,
 	listCodeReviews, getCodeReview, createCodeReview, addReviewComment,
 	getReviewComments, addReviewers, removeReviewer, updateReviewerStatus,
+	listLockRules, createLockRule, deleteLockRules, releaseLocks,
 } from '../../../src/core/workspace';
 
 const mockGetBackend = vi.mocked(getBackend);
@@ -39,6 +40,18 @@ describe('workspace facade', () => {
 		addReviewers: vi.fn(),
 		removeReviewer: vi.fn(),
 		updateReviewerStatus: vi.fn(),
+		listLabels: vi.fn(),
+		createLabel: vi.fn(),
+		deleteLabel: vi.fn(),
+		getFileHistory: vi.fn(),
+		getBlame: vi.fn(),
+		checkMergeAllowed: vi.fn(),
+		executeMerge: vi.fn(),
+		listLockRules: vi.fn(),
+		createLockRule: vi.fn(),
+		deleteLockRules: vi.fn(),
+		deleteLockRulesForRepo: vi.fn(),
+		releaseLocks: vi.fn(),
 	};
 
 	beforeEach(() => {
@@ -166,5 +179,35 @@ describe('workspace facade', () => {
 
 		await updateReviewerStatus(1, 'alice', 'Reviewed');
 		expect(fakeBackend.updateReviewerStatus).toHaveBeenCalledWith(1, 'alice', 'Reviewed');
+	});
+
+	it('listLockRules delegates', async () => {
+		const expected = [{ name: 'Art Lock', rules: '*.psd', targetBranch: '/main', excludedBranches: [], destinationBranches: [] }];
+		fakeBackend.listLockRules.mockResolvedValue(expected);
+
+		const result = await listLockRules();
+		expect(result).toBe(expected);
+		expect(fakeBackend.listLockRules).toHaveBeenCalledOnce();
+	});
+
+	it('createLockRule delegates', async () => {
+		const rule = { name: 'Art Lock', rules: '*.psd', targetBranch: '/main', excludedBranches: [], destinationBranches: [] };
+		fakeBackend.createLockRule.mockResolvedValue(rule);
+
+		const result = await createLockRule(rule);
+		expect(result).toBe(rule);
+		expect(fakeBackend.createLockRule).toHaveBeenCalledWith(rule);
+	});
+
+	it('deleteLockRules delegates', async () => {
+		fakeBackend.deleteLockRules.mockResolvedValue(undefined);
+		await deleteLockRules();
+		expect(fakeBackend.deleteLockRules).toHaveBeenCalledOnce();
+	});
+
+	it('releaseLocks delegates', async () => {
+		fakeBackend.releaseLocks.mockResolvedValue(undefined);
+		await releaseLocks([1, 2], 'Release');
+		expect(fakeBackend.releaseLocks).toHaveBeenCalledWith([1, 2], 'Release');
 	});
 });

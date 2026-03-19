@@ -15,11 +15,11 @@ export class PlasticStatusBar implements vscode.Disposable {
 	constructor(private readonly provider: PlasticScmProvider) {
 		this.branchItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
 		this.branchItem.command = COMMANDS.switchBranch;
-		this.branchItem.tooltip = 'Plastic SCM: Current Branch (click to switch)';
+		this.branchItem.tooltip = 'BetterPSCM: Current Branch (click to switch)';
 
 		this.changesItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 99);
 		this.changesItem.command = COMMANDS.refresh;
-		this.changesItem.tooltip = 'Plastic SCM: Pending Changes (click to refresh)';
+		this.changesItem.tooltip = 'BetterPSCM: Pending Changes (click to refresh)';
 
 		// Update changes and branch on status poll
 		this.disposables.push(
@@ -69,7 +69,7 @@ export class PlasticStatusBar implements vscode.Disposable {
 		if (branch) {
 			this.branchItem.text = `$(source-control) ${branch}`;
 		} else {
-			this.branchItem.text = '$(source-control) Plastic SCM';
+			this.branchItem.text = '$(source-control) BetterPSCM';
 		}
 	}
 

@@ -1,8 +1,8 @@
-export const EXTENSION_ID = 'plasticScm';
-export const SCM_PROVIDER_ID = 'plasticScm';
-export const SCM_PROVIDER_LABEL = 'Plastic SCM';
+export const EXTENSION_ID = 'bpscm';
+export const SCM_PROVIDER_ID = 'bpscm';
+export const SCM_PROVIDER_LABEL = 'BetterPSCM';
 
-export const PLASTIC_URI_SCHEME = 'plastic';
+export const PLASTIC_URI_SCHEME = 'bpscm';
 
 export const RESOURCE_GROUP_STAGED = 'staged';
 export const RESOURCE_GROUP_STAGED_LABEL = 'Staged Changes';
@@ -10,45 +10,45 @@ export const RESOURCE_GROUP_CHANGES = 'changes';
 export const RESOURCE_GROUP_CHANGES_LABEL = 'Changes';
 
 export const COMMANDS = {
-	stage: 'plasticScm.stage',
-	unstage: 'plasticScm.unstage',
-	stageAll: 'plasticScm.stageAll',
-	unstageAll: 'plasticScm.unstageAll',
-	checkin: 'plasticScm.checkin',
-	checkinAll: 'plasticScm.checkinAll',
-	refresh: 'plasticScm.refresh',
-	openChange: 'plasticScm.openChange',
-	openFile: 'plasticScm.openFile',
-	revertChange: 'plasticScm.revertChange',
-	switchBranch: 'plasticScm.switchBranch',
-	createBranch: 'plasticScm.createBranch',
-	deleteBranch: 'plasticScm.deleteBranch',
-	mergeTo: 'plasticScm.mergeTo',
-	createCodeReview: 'plasticScm.createCodeReview',
-	openCodeReview: 'plasticScm.openCodeReview',
-	inspectReviewComments: 'plasticScm.inspectReviewComments',
-	nextReviewComment: 'plasticScm.nextReviewComment',
-	prevReviewComment: 'plasticScm.prevReviewComment',
-	exportReviewAudit: 'plasticScm.exportReviewAudit',
-	createLabel: 'plasticScm.createLabel',
-	update: 'plasticScm.update',
-	showFileHistory: 'plasticScm.showFileHistory',
-	annotateFile: 'plasticScm.annotateFile',
-	showHistoryGraph: 'plasticScm.showHistoryGraph',
-	login: 'plasticScm.login',
-	logout: 'plasticScm.logout',
-	listLockRules: 'plasticScm.listLockRules',
-	createLockRule: 'plasticScm.createLockRule',
-	deleteLockRules: 'plasticScm.deleteLockRules',
-	releaseLocks: 'plasticScm.releaseLocks',
+	stage: 'bpscm.stage',
+	unstage: 'bpscm.unstage',
+	stageAll: 'bpscm.stageAll',
+	unstageAll: 'bpscm.unstageAll',
+	checkin: 'bpscm.checkin',
+	checkinAll: 'bpscm.checkinAll',
+	refresh: 'bpscm.refresh',
+	openChange: 'bpscm.openChange',
+	openFile: 'bpscm.openFile',
+	revertChange: 'bpscm.revertChange',
+	switchBranch: 'bpscm.switchBranch',
+	createBranch: 'bpscm.createBranch',
+	deleteBranch: 'bpscm.deleteBranch',
+	mergeTo: 'bpscm.mergeTo',
+	createCodeReview: 'bpscm.createCodeReview',
+	openCodeReview: 'bpscm.openCodeReview',
+	inspectReviewComments: 'bpscm.inspectReviewComments',
+	nextReviewComment: 'bpscm.nextReviewComment',
+	prevReviewComment: 'bpscm.prevReviewComment',
+	exportReviewAudit: 'bpscm.exportReviewAudit',
+	createLabel: 'bpscm.createLabel',
+	update: 'bpscm.update',
+	showFileHistory: 'bpscm.showFileHistory',
+	annotateFile: 'bpscm.annotateFile',
+	showHistoryGraph: 'bpscm.showHistoryGraph',
+	login: 'bpscm.login',
+	logout: 'bpscm.logout',
+	listLockRules: 'bpscm.listLockRules',
+	createLockRule: 'bpscm.createLockRule',
+	deleteLockRules: 'bpscm.deleteLockRules',
+	releaseLocks: 'bpscm.releaseLocks',
 } as const;
 
 export const SETTINGS = {
-	serverUrl: 'plasticScm.serverUrl',
-	organizationName: 'plasticScm.organizationName',
-	repositoryName: 'plasticScm.repositoryName',
-	workspaceGuid: 'plasticScm.workspaceGuid',
-	pollInterval: 'plasticScm.pollInterval',
-	showPrivateFiles: 'plasticScm.showPrivateFiles',
-	mcpEnabled: 'plasticScm.mcp.enabled',
+	serverUrl: 'bpscm.serverUrl',
+	organizationName: 'bpscm.organizationName',
+	repositoryName: 'bpscm.repositoryName',
+	workspaceGuid: 'bpscm.workspaceGuid',
+	pollInterval: 'bpscm.pollInterval',
+	showPrivateFiles: 'bpscm.showPrivateFiles',
+	mcpEnabled: 'bpscm.mcp.enabled',
 } as const;

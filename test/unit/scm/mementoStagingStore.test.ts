@@ -3,7 +3,7 @@ import { MementoStagingStore } from '../../../src/scm/mementoStagingStore';
 
 // Minimal mock of vscode.Memento
 function mockMemento(initial: string[] = []) {
-	const data: Record<string, unknown> = { 'plasticScm.stagedPaths': initial };
+	const data: Record<string, unknown> = { 'bpscm.stagedPaths': initial };
 	return {
 		get: vi.fn((key: string, fallback?: unknown) => data[key] ?? fallback),
 		update: vi.fn((key: string, value: unknown) => { data[key] = value; return Promise.resolve(); }),
@@ -22,21 +22,21 @@ describe('MementoStagingStore', () => {
 		const memento = mockMemento();
 		const store = new MementoStagingStore(memento as any);
 		store.add(['new.cs']);
-		expect(memento.update).toHaveBeenCalledWith('plasticScm.stagedPaths', ['new.cs']);
+		expect(memento.update).toHaveBeenCalledWith('bpscm.stagedPaths', ['new.cs']);
 	});
 
 	it('persists on remove', () => {
 		const memento = mockMemento(['a.cs', 'b.cs']);
 		const store = new MementoStagingStore(memento as any);
 		store.remove(['a.cs']);
-		expect(memento.update).toHaveBeenCalledWith('plasticScm.stagedPaths', ['b.cs']);
+		expect(memento.update).toHaveBeenCalledWith('bpscm.stagedPaths', ['b.cs']);
 	});
 
 	it('persists on clear', () => {
 		const memento = mockMemento(['a.cs']);
 		const store = new MementoStagingStore(memento as any);
 		store.clear();
-		expect(memento.update).toHaveBeenCalledWith('plasticScm.stagedPaths', []);
+		expect(memento.update).toHaveBeenCalledWith('bpscm.stagedPaths', []);
 	});
 
 	it('fires onDidChange on add', () => {

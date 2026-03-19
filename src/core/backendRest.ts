@@ -410,9 +410,11 @@ export class RestBackend implements PlasticBackend {
 		if (error) throw error;
 
 		const comments = (data as any)?.comments ?? (data as any[]) ?? [];
-		return comments
-			.filter((c: any) => !isSystemCommentType(c.type))
-			.map(mapComment);
+		log(`[getReviewComments] review ${reviewId}: ${comments.length} total comments, types: ${comments.map((c: any) => c.type).join(', ')}`);
+		const filtered = comments
+			.filter((c: any) => !isSystemCommentType(c.type));
+		log(`[getReviewComments] after filtering system types: ${filtered.length} comments`);
+		return filtered.map(mapComment);
 	}
 
 	async addReviewComment(params: CreateCommentParams): Promise<ReviewCommentInfo> {
@@ -771,6 +773,18 @@ function mapCodeReview(data: any): CodeReviewInfo {
 }
 
 function mapComment(data: any): ReviewCommentInfo {
+	// REST API stores revisionId and locationSpec (line number) as separate fields.
+	// The resolver expects "revisionId#lineNumber" format, so combine them.
+	const revisionId = data?.revisionId as number | undefined;
+	const rawLoc = data?.locationSpec as string | number | undefined | null;
+	let locationSpec: string | undefined;
+	if (revisionId && revisionId > 0 && rawLoc !== undefined && rawLoc !== null) {
+		const lineNum = typeof rawLoc === 'number' ? rawLoc : parseInt(String(rawLoc), 10);
+		if (!isNaN(lineNum) && lineNum >= 0) {
+			locationSpec = `${revisionId}#${lineNum}`;
+		}
+	}
+
 	return {
 		id: data?.id ?? 0,
 		owner: data?.owner ?? '',
@@ -779,7 +793,7 @@ function mapComment(data: any): ReviewCommentInfo {
 		timestamp: data?.timestamp ?? '',
 		parentCommentId: data?.parentCommentId || undefined,
 		itemName: data?.itemName ?? undefined,
-		locationSpec: data?.locationSpec ?? undefined,
+		locationSpec,
 	};
 }
 

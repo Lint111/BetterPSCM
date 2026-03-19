@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
-import { logError } from '../util/logger';
+import { getBackend } from '../core/backend';
+import { log, logError } from '../util/logger';
 import type { CodeReviewInfo, ResolvedComment } from '../core/types';
 
 export function generateAuditMarkdown(
@@ -82,17 +83,45 @@ export async function exportReviewAudit(
 		return;
 	}
 
+	// Group comments by file path and collect revision IDs for fallback
 	const filePaths = [...new Set(comments.map(c => c.filePath))];
+	const revisionByPath = new Map<string, number>();
+	for (const c of comments) {
+		if (c.revisionId && !revisionByPath.has(c.filePath)) {
+			revisionByPath.set(c.filePath, c.revisionId);
+		}
+	}
+
 	const fileContents = new Map<string, string[]>();
 
 	for (const filePath of filePaths) {
+		// Try reading from local disk first
 		try {
 			const uri = vscode.Uri.file(filePath);
 			const doc = await vscode.workspace.openTextDocument(uri);
 			fileContents.set(filePath, doc.getText().split('\n'));
+			continue;
 		} catch {
-			// File might not exist locally
+			// File doesn't exist locally — try revision fallback
 		}
+
+		// Fallback: fetch revision content via backend (cm cat)
+		const revId = revisionByPath.get(filePath);
+		if (revId) {
+			try {
+				log(`[exportAudit] file not on disk, trying revid:${revId} for ${filePath}`);
+				const content = await getBackend().getFileContent(`revid:${revId}`);
+				if (content) {
+					const text = new TextDecoder('utf-8').decode(content);
+					fileContents.set(filePath, text.split('\n'));
+					continue;
+				}
+			} catch (err) {
+				logError(`[exportAudit] revision fallback failed for revid:${revId}`, err);
+			}
+		}
+
+		log(`[exportAudit] could not load content for ${filePath}`);
 	}
 
 	const markdown = generateAuditMarkdown(review, comments, fileContents);

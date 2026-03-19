@@ -8,7 +8,7 @@ import { log, logError } from '../util/logger';
 import type { CodeReviewInfo, ReviewCommentInfo, ReviewStatus } from '../core/types';
 
 export class CodeReviewPanel implements vscode.Disposable {
-	static readonly viewType = 'plasticScm.codeReviewPanel';
+	static readonly viewType = 'bpscm.codeReviewPanel';
 	private static panels = new Map<number, CodeReviewPanel>();
 
 	private readonly panel: vscode.WebviewPanel;

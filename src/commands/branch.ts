@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import type { PlasticScmProvider } from '../scm/plasticScmProvider';
-import { listBranches, createBranch, deleteBranch, switchBranch, getCurrentBranch } from '../core/workspace';
+import { listBranches, createBranch, deleteBranch, getCurrentBranch } from '../core/workspace';
+import { safeSwitchBranch } from './branchSwitch';
 import { COMMANDS } from '../constants';
 import { logError } from '../util/logger';
 
@@ -28,10 +29,11 @@ export function registerBranchCommands(
 
 				if (!picked) return;
 
-				await switchBranch(picked.label);
-				await provider.refresh();
-
-				vscode.window.showInformationMessage(`Switched to ${picked.label}`);
+				const result = await safeSwitchBranch(picked.label, provider);
+				if (result === 'switched') {
+					await provider.refresh();
+					vscode.window.showInformationMessage(`Switched to ${picked.label}`);
+				}
 			} catch (err) {
 				logError('Switch branch failed', err);
 				vscode.window.showErrorMessage(

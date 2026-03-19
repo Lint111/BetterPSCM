@@ -23,7 +23,7 @@ export function registerAuthCommands(context: vscode.ExtensionContext): void {
 	context.subscriptions.push(
 		vscode.commands.registerCommand(COMMANDS.logout, async () => {
 			await logout();
-			vscode.window.showInformationMessage('Signed out of Plastic SCM.');
+			vscode.window.showInformationMessage('Signed out of BetterPSCM.');
 		}),
 	);
 }
@@ -31,11 +31,11 @@ export function registerAuthCommands(context: vscode.ExtensionContext): void {
 async function performLogin(): Promise<void> {
 	if (!isConfigured()) {
 		const action = await vscode.window.showErrorMessage(
-			'Plastic SCM server URL and organization name must be configured first.',
+			'BetterPSCM: Server URL and organization name must be configured first.',
 			'Open Settings',
 		);
 		if (action === 'Open Settings') {
-			vscode.commands.executeCommand('workbench.action.openSettings', 'plasticScm');
+			vscode.commands.executeCommand('workbench.action.openSettings', 'bpscm');
 		}
 		return;
 	}
@@ -120,7 +120,7 @@ async function performLogin(): Promise<void> {
 	}
 
 	if (success) {
-		vscode.window.showInformationMessage('Successfully signed in to Plastic SCM.');
+		vscode.window.showInformationMessage('Successfully signed in to BetterPSCM.');
 	} else {
 		vscode.window.showErrorMessage('Sign in failed. Check your credentials and try again.');
 	}

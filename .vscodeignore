@@ -1,0 +1,29 @@
+# Source and build tooling (only dist/ is needed at runtime)
+.vscode/
+src/
+test/
+out/
+openapi/
+docs/
+
+# Build config
+esbuild.config.mjs
+tsconfig.json
+vitest.config.ts
+package-lock.json
+
+# Development files
+CLAUDE.md
+.gitignore
+.git/
+*.vsix
+
+# Source maps (expose full source)
+dist/*.map
+
+# Test and dev dependencies
+node_modules/
+.vscode-test/
+
+# Generated types (bundled into dist/)
+src/api/generated/

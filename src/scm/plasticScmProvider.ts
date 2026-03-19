@@ -21,6 +21,7 @@ import { AdaptivePoller } from '../util/polling';
 import { log, logError, getLogger } from '../util/logger';
 import { DisposableStore } from '../util/disposable';
 import { AuthExpiredError, isPlasticApiError } from '../api/errors';
+import { isCommittableChange } from '../core/safety';
 import type { NormalizedChange } from '../core/types';
 
 /**
@@ -166,6 +167,16 @@ export class PlasticScmProvider implements vscode.Disposable {
 		await this.pollStatus();
 	}
 
+	/** Pause status polling (e.g., during branch switch). */
+	pausePolling(): void {
+		this.poller.pause();
+	}
+
+	/** Resume status polling after a pause. */
+	resumePolling(): void {
+		this.poller.resume();
+	}
+
 	private async pollStatus(): Promise<void> {
 		try {
 			const config = getConfig();
@@ -179,7 +190,8 @@ export class PlasticScmProvider implements vscode.Disposable {
 			}
 
 			const oldCount = this.currentChanges.length;
-			this.currentChanges = result.changes;
+			// Filter out stale checkouts (checked out but not modified) from the UI
+			this.currentChanges = result.changes.filter(c => isCommittableChange(c.changeType));
 
 			// Update quick diff provider with latest changes
 			this.quickDiffProvider.updateChanges(this.currentChanges, this.workspaceRoot.fsPath);
@@ -218,9 +230,9 @@ export class PlasticScmProvider implements vscode.Disposable {
 
 			if (err instanceof AuthExpiredError || isPlasticApiError(err) && err.statusCode === 401) {
 				this.sourceControl.inputBox.placeholder =
-					'Sign in to Plastic SCM to see changes';
+					'Sign in to BetterPSCM to see changes';
 				vscode.window.showWarningMessage(
-					'Plastic SCM: Authentication required to fetch workspace changes.',
+					'BetterPSCM: Authentication required to fetch workspace changes.',
 					'Sign In',
 				).then(action => {
 					if (action === 'Sign In') {

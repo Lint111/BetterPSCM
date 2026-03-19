@@ -1,16 +1,18 @@
 import * as vscode from 'vscode';
 import type { Middleware } from 'openapi-fetch';
-import { getClient, getOrgName, resetClient } from './client';
+import { getClient, getOrgName, getOrgNameVariants, setResolvedOrgName, resetClient } from './client';
 import { AuthExpiredError } from './errors';
 import { log, logError } from '../util/logger';
 
-const SECRET_ACCESS_TOKEN = 'plasticScm.accessToken';
-const SECRET_REFRESH_TOKEN = 'plasticScm.refreshToken';
+const SECRET_ACCESS_TOKEN = 'bpscm.accessToken';
+const SECRET_REFRESH_TOKEN = 'bpscm.refreshToken';
 
 let secretStorage: vscode.SecretStorage | undefined;
 let cachedAccessToken: string | undefined;
 let cachedRefreshToken: string | undefined;
-let isRefreshing = false;
+
+/** Promise-based refresh lock: all concurrent 401s wait on a single refresh attempt. */
+let refreshPromise: Promise<boolean> | undefined;
 
 /**
  * Initialize auth with the extension's secret storage.
@@ -32,9 +34,9 @@ export function createAuthMiddleware(): Middleware {
 			return request;
 		},
 		async onResponse({ response, request }) {
-			if (response.status !== 401 || isRefreshing) return response;
+			if (response.status !== 401) return response;
 
-			// Attempt silent refresh
+			// All concurrent 401s coalesce on a single refresh attempt
 			const refreshed = await tryRefreshToken();
 			if (!refreshed) return response;
 
@@ -52,60 +54,62 @@ export function createAuthMiddleware(): Middleware {
  * Sign in with username/password. Stores tokens in SecretStorage.
  */
 export async function loginWithCredentials(username: string, password: string): Promise<boolean> {
-	try {
-		const client = getClient();
-		const orgName = getOrgName();
+	const client = getClient();
+	const variants = getOrgNameVariants();
 
-		const { data, error } = await client.POST('/api/v1/organizations/{orgName}/login', {
-			params: { path: { orgName } },
-			body: { user: username, password },
-		});
+	for (const orgName of variants) {
+		try {
+			log(`Trying login with org "${orgName}"...`);
+			const { data, error } = await client.POST('/api/v1/organizations/{orgName}/login', {
+				params: { path: { orgName } },
+				body: { user: username, password },
+			});
 
-		if (error || !data) {
-			logError('Login failed', error);
-			return false;
+			if (error || !data) continue;
+
+			await storeTokens(data.accessToken, data.refreshToken);
+			setResolvedOrgName(orgName);
+			log(`Login successful (org: "${orgName}")`);
+			client.use(createAuthMiddleware());
+			return true;
+		} catch (err) {
+			log(`Login with org "${orgName}" failed: ${err instanceof Error ? err.message : String(err)}`);
 		}
-
-		await storeTokens(data.accessToken, data.refreshToken);
-		log('Login successful');
-
-		// Add auth middleware to client
-		client.use(createAuthMiddleware());
-
-		return true;
-	} catch (err) {
-		logError('Login error', err);
-		return false;
 	}
+
+	logError('Login failed for all org name variants', new Error(variants.join(', ')));
+	return false;
 }
 
 /**
  * Sign in with a token (SSO/token-based auth).
  */
 export async function loginWithToken(email: string, authToken: string): Promise<boolean> {
-	try {
-		const client = getClient();
-		const orgName = getOrgName();
+	const client = getClient();
+	const variants = getOrgNameVariants();
 
-		const { data, error } = await client.POST('/api/v1/organizations/{orgName}/login/verify', {
-			params: { path: { orgName } },
-			body: { email, authToken },
-		});
+	for (const orgName of variants) {
+		try {
+			log(`Trying token login with org "${orgName}"...`);
+			const { data, error } = await client.POST('/api/v1/organizations/{orgName}/login/verify', {
+				params: { path: { orgName } },
+				body: { email, authToken },
+			});
 
-		if (error || !data) {
-			logError('Token login failed', error);
-			return false;
+			if (error || !data) continue;
+
+			await storeTokens(data.accessToken, data.refreshToken);
+			setResolvedOrgName(orgName);
+			log(`Token login successful (org: "${orgName}")`);
+			client.use(createAuthMiddleware());
+			return true;
+		} catch (err) {
+			log(`Token login with org "${orgName}" failed: ${err instanceof Error ? err.message : String(err)}`);
 		}
-
-		await storeTokens(data.accessToken, data.refreshToken);
-		log('Token login successful');
-
-		client.use(createAuthMiddleware());
-		return true;
-	} catch (err) {
-		logError('Token login error', err);
-		return false;
 	}
+
+	logError('Token login failed for all org name variants', new Error(variants.join(', ')));
+	return false;
 }
 
 /**
@@ -167,9 +171,18 @@ export async function getAccessToken(): Promise<string | undefined> {
 }
 
 async function tryRefreshToken(): Promise<boolean> {
-	if (isRefreshing) return false;
-	isRefreshing = true;
+	// If a refresh is already in flight, all callers wait on the same promise
+	if (refreshPromise) return refreshPromise;
 
+	refreshPromise = doRefresh();
+	try {
+		return await refreshPromise;
+	} finally {
+		refreshPromise = undefined;
+	}
+}
+
+async function doRefresh(): Promise<boolean> {
 	try {
 		if (!cachedRefreshToken && secretStorage) {
 			cachedRefreshToken = await secretStorage.get(SECRET_REFRESH_TOKEN);
@@ -200,8 +213,6 @@ async function tryRefreshToken(): Promise<boolean> {
 	} catch (err) {
 		logError('Token refresh error', err);
 		return false;
-	} finally {
-		isRefreshing = false;
 	}
 }
 

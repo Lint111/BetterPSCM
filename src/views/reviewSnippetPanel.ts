@@ -1,10 +1,11 @@
 import * as vscode from 'vscode';
 import { coreStyles } from './webviewStyles';
-import { logError } from '../util/logger';
+import { log, logError } from '../util/logger';
+import { getBackend } from '../core/backend';
 import type { ResolvedComment } from '../core/types';
 
 export class ReviewSnippetPanel implements vscode.Disposable {
-	static readonly viewType = 'plasticScm.reviewSnippetPanel';
+	static readonly viewType = 'bpscm.reviewSnippetPanel';
 	private static instance: ReviewSnippetPanel | undefined;
 
 	private readonly panel: vscode.WebviewPanel;
@@ -79,13 +80,31 @@ export class ReviewSnippetPanel implements vscode.Disposable {
 	}
 
 	private async fetchFileLines(comment: ResolvedComment): Promise<string[]> {
+		// Try reading from local disk first
 		try {
 			const uri = vscode.Uri.file(comment.filePath);
 			const doc = await vscode.workspace.openTextDocument(uri);
 			return doc.getText().split('\n');
 		} catch {
-			return [];
+			// File doesn't exist locally (likely on a different branch)
 		}
+
+		// Fallback: fetch revision content via backend (cm cat)
+		if (comment.revisionId) {
+			try {
+				log(`[fetchFileLines] file not on disk, trying revid:${comment.revisionId}`);
+				const content = await getBackend().getFileContent(`revid:${comment.revisionId}`);
+				if (content) {
+					const text = new TextDecoder('utf-8').decode(content);
+					return text.split('\n');
+				}
+			} catch (err) {
+				logError(`[fetchFileLines] revision fallback failed for revid:${comment.revisionId}`, err);
+			}
+		}
+
+		log(`[fetchFileLines] could not load content for ${comment.filePath}`);
+		return [];
 	}
 
 	private buildHtml(

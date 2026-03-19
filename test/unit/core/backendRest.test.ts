@@ -232,4 +232,82 @@ describe('RestBackend', () => {
 			await expect(backend.switchBranch('/main')).rejects.toThrow();
 		});
 	});
+
+	describe('listLockRules', () => {
+		it('returns mapped lock rules from repositoryRules', async () => {
+			setupClient('GET', {
+				data: {
+					repositoryRules: [
+						{ name: 'Art Lock', rules: '*.psd', targetBranch: '/main', excludedBranches: ['/dev'], destinationBranches: [] },
+						{ name: 'Binary Lock', rules: '*.fbx', targetBranch: '', excludedBranches: [], destinationBranches: ['/main'] },
+					],
+				},
+			});
+
+			const rules = await backend.listLockRules();
+			expect(rules).toHaveLength(2);
+			expect(rules[0]).toEqual({
+				name: 'Art Lock', rules: '*.psd', targetBranch: '/main',
+				excludedBranches: ['/dev'], destinationBranches: [],
+			});
+			expect(rules[1].name).toBe('Binary Lock');
+		});
+
+		it('returns empty array when no rules', async () => {
+			setupClient('GET', { data: {} });
+			const rules = await backend.listLockRules();
+			expect(rules).toHaveLength(0);
+		});
+
+		it('throws on error', async () => {
+			setupClient('GET', { error: new Error('forbidden') });
+			await expect(backend.listLockRules()).rejects.toThrow();
+		});
+	});
+
+	describe('createLockRule', () => {
+		it('posts lock rule and returns mapped result', async () => {
+			const client = setupClient('POST', {
+				data: { name: 'Art Lock', rules: '*.psd', targetBranch: '/main', excludedBranches: [], destinationBranches: [] },
+			});
+
+			const rule = { name: 'Art Lock', rules: '*.psd', targetBranch: '/main', excludedBranches: [], destinationBranches: [] };
+			const result = await backend.createLockRule(rule);
+			expect(result.name).toBe('Art Lock');
+			expect(result.rules).toBe('*.psd');
+			expect(client.POST).toHaveBeenCalledOnce();
+		});
+
+		it('throws on error', async () => {
+			setupClient('POST', { error: new Error('conflict') });
+			const rule = { name: 'x', rules: '*.x', targetBranch: '', excludedBranches: [], destinationBranches: [] };
+			await expect(backend.createLockRule(rule)).rejects.toThrow();
+		});
+	});
+
+	describe('deleteLockRules', () => {
+		it('calls DELETE', async () => {
+			const client = setupClient('DELETE', { data: null });
+			await backend.deleteLockRules();
+			expect(client.DELETE).toHaveBeenCalledOnce();
+		});
+
+		it('throws on error', async () => {
+			setupClient('DELETE', { error: new Error('forbidden') });
+			await expect(backend.deleteLockRules()).rejects.toThrow();
+		});
+	});
+
+	describe('releaseLocks', () => {
+		it('calls DELETE with itemIds and editLockType', async () => {
+			const client = setupClient('DELETE', { data: null });
+			await backend.releaseLocks([1, 2, 3], 'Release');
+			expect(client.DELETE).toHaveBeenCalledOnce();
+		});
+
+		it('throws on error', async () => {
+			setupClient('DELETE', { error: new Error('not found') });
+			await expect(backend.releaseLocks([1], 'Delete')).rejects.toThrow();
+		});
+	});
 });

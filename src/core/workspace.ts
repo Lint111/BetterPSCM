@@ -91,6 +91,13 @@ export async function switchBranch(branchName: string): Promise<void> {
 }
 
 /**
+ * Undo checkout on specified files (reverts to server revision).
+ */
+export async function undoCheckout(paths: string[]): Promise<string[]> {
+	return getBackend().undoCheckout(paths);
+}
+
+/**
  * Update workspace to latest. Invalidates all caches.
  */
 export async function updateWorkspace(): Promise<UpdateResult> {

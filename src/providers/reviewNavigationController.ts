@@ -57,7 +57,7 @@ export class ReviewNavigationController implements vscode.Disposable {
 		}
 		this._statusBar.text = `$(comment) Review Comment ${this._currentIndex + 1}/${this._comments.length}`;
 		this._statusBar.tooltip = 'Click to navigate review comments';
-		this._statusBar.command = 'plasticScm.nextReviewComment';
+		this._statusBar.command = 'bpscm.nextReviewComment';
 		this._statusBar.show();
 	}
 

@@ -93,7 +93,7 @@ class CommentItem extends vscode.TreeItem {
 		);
 		this.contextValue = 'reviewComment';
 		this.command = {
-			command: 'plasticScm.inspectReviewComments',
+			command: 'bpscm.inspectReviewComments',
 			title: 'Inspect Comment',
 			arguments: [comment],
 		};

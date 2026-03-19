@@ -504,31 +504,9 @@ export class CliBackend implements PlasticBackend {
 			throw new Error(`cm codereview edit failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
 		}
 	}
-	async getReviewComments(reviewId: number): Promise<ReviewCommentInfo[]> {
-		const result = await execCm([
-			'find', 'reviewcomment',
-			`where reviewid=${reviewId}`,
-			'--xml',
-			'--nototal',
-		]);
-		if (result.exitCode !== 0) {
-			throw new Error(`cm find reviewcomment failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
-		}
-		return parseReviewCommentXml(result.stdout);
-	}
-	async addReviewComment(): Promise<ReviewCommentInfo> { throw new NotSupportedError('addReviewComment', 'cm CLI (requires REST API backend for writing review comments)'); }
-	async getReviewers(reviewId: number): Promise<ReviewerInfo[]> {
-		const result = await execCm([
-			'find', 'reviewcomment',
-			`where reviewid=${reviewId}`,
-			'--xml',
-			'--nototal',
-		]);
-		if (result.exitCode !== 0) {
-			throw new Error(`cm find reviewcomment failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
-		}
-		return extractReviewersFromComments(result.stdout);
-	}
+	async getReviewComments(): Promise<ReviewCommentInfo[]> { throw new NotSupportedError('getReviewComments', 'cm CLI'); }
+	async addReviewComment(): Promise<ReviewCommentInfo> { throw new NotSupportedError('addReviewComment', 'cm CLI'); }
+	async getReviewers(): Promise<ReviewerInfo[]> { throw new NotSupportedError('getReviewers', 'cm CLI'); }
 	async addReviewers(): Promise<void> { throw new NotSupportedError('addReviewers', 'cm CLI (requires REST API backend for managing reviewers)'); }
 	async removeReviewer(): Promise<void> { throw new NotSupportedError('removeReviewer', 'cm CLI (requires REST API backend for managing reviewers)'); }
 	async updateReviewerStatus(): Promise<void> { throw new NotSupportedError('updateReviewerStatus', 'cm CLI (requires REST API backend for managing reviewers)'); }

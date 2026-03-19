@@ -20,11 +20,11 @@ describe('resolveComments', () => {
 		expect(result).toHaveLength(2);
 		expect(result[0]).toEqual({
 			id: 2, owner: 'maria', text: 'Looks good', type: 'Comment', timestamp: '2026-02-17T16:00:00',
-			filePath: 'C:\\proj\\Assets\\Bar.cs', lineNumber: 12,
+			filePath: 'C:\\proj\\Assets\\Bar.cs', lineNumber: 12, revisionId: 42940,
 		});
 		expect(result[1]).toEqual({
 			id: 1, owner: 'theo', text: 'Fix this', type: 'Comment', timestamp: '2026-02-17T15:00:00',
-			filePath: 'C:\\proj\\Assets\\Foo.cs', lineNumber: 37,
+			filePath: 'C:\\proj\\Assets\\Foo.cs', lineNumber: 37, revisionId: 42939,
 		});
 	});
 

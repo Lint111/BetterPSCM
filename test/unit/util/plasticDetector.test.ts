@@ -62,7 +62,7 @@ describe('detectWorkspace', () => {
 		expect(result).toBeDefined();
 		expect(result!.workspaceName).toBe('MyWorkspace');
 		expect(result!.workspaceGuid).toBe('0208f971-645e-41ec-b635-303facd7df1d');
-		expect(result!.repositoryName).toBe('MyRepo');
+		expect(result!.repositoryName).toBe('MyOrg/MyRepo');
 		expect(result!.currentBranch).toBe('/main/Feature');
 		expect(result!.isCloud).toBe(true);
 		expect(result!.organizationName).toBe('my-org-slug');

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Plastic SCM MCP Server — standalone process for AI agent integration.
+ * BetterPSCM MCP Server — standalone process for AI agent integration.
  *
  * Provides 19 tools, 3 resources, and 2 prompts over stdio transport.
  * Uses the cm CLI backend directly (no vscode dependency).
@@ -8,7 +8,7 @@
  * Usage:
  *   node dist/mcp-server.js --workspace /path/to/plastic/workspace
  *
- * Or via VS Code extension when plasticScm.mcp.enabled = true.
+ * Or via VS Code extension when bpscm.mcp.enabled = true.
  */
 
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -25,7 +25,7 @@ import { BULK_OPERATION_THRESHOLD, UNITY_CRITICAL_EXTENSIONS } from '../core/saf
 import { resolveConfig } from '../util/configResolver';
 import { initDetectedConfig } from '../util/config';
 import { detectWorkspace, detectCachedToken } from '../util/plasticDetector';
-import { getClient, setOrgNameHints } from '../api/client';
+import { getClient, setOrgNameHints, setResolvedOrgName } from '../api/client';
 import { HybridBackend } from '../core/backendHybrid';
 import { RestBackend } from '../core/backendRest';
 import { buildReviewAudit } from './reviewAudit.js';
@@ -54,7 +54,7 @@ function parseArgs(): { workspace: string } {
 // ── Server setup ─────────────────────────────────────────────────────
 
 const server = new McpServer({
-	name: 'plastic-scm',
+	name: 'betterpscm',
 	version: '0.1.0',
 });
 
@@ -101,9 +101,9 @@ function audit(tool: string, action: string, details?: Record<string, unknown>) 
 
 // ── Tools ────────────────────────────────────────────────────────────
 
-// 1. plastic_status — List pending workspace changes
+// 1. bpscm_status — List pending workspace changes
 server.registerTool(
-	'plastic_status',
+	'bpscm_status',
 	{
 		title: 'Workspace Status',
 		description: 'List pending changes in the Plastic SCM workspace. Returns file paths, change types, staged status, and flags checkouts with no content modifications as potentially stale.',
@@ -132,9 +132,9 @@ server.registerTool(
 	},
 );
 
-// 2. plastic_stage — Stage files for checkin
+// 2. bpscm_stage — Stage files for checkin
 server.registerTool(
-	'plastic_stage',
+	'bpscm_stage',
 	{
 		title: 'Stage Files',
 		description: 'Stage one or more files for the next checkin. Supports exact file paths and directory prefixes (e.g. "Assets/Data" stages all pending files under that directory).',
@@ -175,9 +175,9 @@ server.registerTool(
 	},
 );
 
-// 3. plastic_unstage — Unstage files
+// 3. bpscm_unstage — Unstage files
 server.registerTool(
-	'plastic_unstage',
+	'bpscm_unstage',
 	{
 		title: 'Unstage Files',
 		description: 'Remove files from the staging area.',
@@ -191,9 +191,9 @@ server.registerTool(
 	},
 );
 
-// 4. plastic_checkin — Commit staged files
+// 4. bpscm_checkin — Commit staged files
 server.registerTool(
-	'plastic_checkin',
+	'bpscm_checkin',
 	{
 		title: 'Check In',
 		description: `Check in (commit) staged files with a comment. If no files are staged, checks in all pending changes.
@@ -211,7 +211,7 @@ SMART HANDLING:
 	},
 	async ({ comment, all, exclude_paths, auto_add_private }) => {
 		try {
-			audit('plastic_checkin', 'invoked', { all, excludeCount: exclude_paths?.length ?? 0, auto_add_private });
+			audit('bpscm_checkin', 'invoked', { all, excludeCount: exclude_paths?.length ?? 0, auto_add_private });
 			const result = await getService().checkin({
 				comment,
 				all,
@@ -219,7 +219,7 @@ SMART HANDLING:
 				autoAddPrivate: auto_add_private,
 			});
 
-			audit('plastic_checkin', 'completed', {
+			audit('bpscm_checkin', 'completed', {
 				changesetId: result.changesetId,
 				autoAdded: result.autoAdded.length,
 				autoExcluded: result.autoExcluded.length,
@@ -235,19 +235,19 @@ SMART HANDLING:
 			}
 			if (result.autoExcluded.length > 0) {
 				response.autoExcludedStale = result.autoExcluded;
-				response.note = `${result.autoExcluded.length} unchanged item(s) were auto-excluded. Use plastic_clean_stale to clear stale checkouts.`;
+				response.note = `${result.autoExcluded.length} unchanged item(s) were auto-excluded. Use bpscm_clean_stale to clear stale checkouts.`;
 			}
 			return jsonResult(response);
 		} catch (err) {
-			audit('plastic_checkin', 'error', { error: err instanceof Error ? err.message : String(err) });
+			audit('bpscm_checkin', 'error', { error: err instanceof Error ? err.message : String(err) });
 			return errorResult(err instanceof Error ? err.message : String(err));
 		}
 	},
 );
 
-// 5. plastic_diff — Show changeset diff
+// 5. bpscm_diff — Show changeset diff
 server.registerTool(
-	'plastic_diff',
+	'bpscm_diff',
 	{
 		title: 'Changeset Diff',
 		description: 'List files changed in a specific changeset compared to its parent.',
@@ -266,9 +266,9 @@ server.registerTool(
 	},
 );
 
-// 6. plastic_file_diff — Get file content at a revision
+// 6. bpscm_file_diff — Get file content at a revision
 server.registerTool(
-	'plastic_file_diff',
+	'bpscm_file_diff',
 	{
 		title: 'File Content at Revision',
 		description: 'Retrieve file content at a specific revision for diffing.',
@@ -287,9 +287,9 @@ server.registerTool(
 	},
 );
 
-// 7. plastic_branches — List branches
+// 7. bpscm_branches — List branches
 server.registerTool(
-	'plastic_branches',
+	'bpscm_branches',
 	{
 		title: 'List Branches',
 		description: 'List all branches in the repository.',
@@ -306,9 +306,9 @@ server.registerTool(
 	},
 );
 
-// 8. plastic_create_branch — Create a new branch
+// 8. bpscm_create_branch — Create a new branch
 server.registerTool(
-	'plastic_create_branch',
+	'bpscm_create_branch',
 	{
 		title: 'Create Branch',
 		description: 'Create a new branch from the current changeset.',
@@ -327,9 +327,9 @@ server.registerTool(
 	},
 );
 
-// 9. plastic_switch_branch — Switch to a branch
+// 9. bpscm_switch_branch — Switch to a branch
 server.registerTool(
-	'plastic_switch_branch',
+	'bpscm_switch_branch',
 	{
 		title: 'Switch Branch',
 		description: 'Switch the workspace to a different branch.',
@@ -347,9 +347,9 @@ server.registerTool(
 	},
 );
 
-// 10. plastic_file_history — Show file revision history
+// 10. bpscm_file_history — Show file revision history
 server.registerTool(
-	'plastic_file_history',
+	'bpscm_file_history',
 	{
 		title: 'File History',
 		description: 'Show the revision history for a specific file.',
@@ -367,9 +367,9 @@ server.registerTool(
 	},
 );
 
-// 11. plastic_annotate — Blame/annotate a file
+// 11. bpscm_annotate — Blame/annotate a file
 server.registerTool(
-	'plastic_annotate',
+	'bpscm_annotate',
 	{
 		title: 'Annotate (Blame)',
 		description: 'Show line-by-line blame information for a file.',
@@ -390,9 +390,9 @@ server.registerTool(
 	},
 );
 
-// 12. plastic_merge — Merge branches
+// 12. bpscm_merge — Merge branches
 server.registerTool(
-	'plastic_merge',
+	'bpscm_merge',
 	{
 		title: 'Merge Branches',
 		description: 'Merge a source branch into a target branch. Use preview=true to check for conflicts without merging.',
@@ -417,9 +417,9 @@ server.registerTool(
 	},
 );
 
-// 13. plastic_create_review — Create a code review
+// 13. bpscm_create_review — Create a code review
 server.registerTool(
-	'plastic_create_review',
+	'bpscm_create_review',
 	{
 		title: 'Create Code Review',
 		description: 'Create a code review for a branch, changeset, or label.',
@@ -443,9 +443,9 @@ server.registerTool(
 	},
 );
 
-// 14. plastic_list_reviews — List code reviews
+// 14. bpscm_list_reviews — List code reviews
 server.registerTool(
-	'plastic_list_reviews',
+	'bpscm_list_reviews',
 	{
 		title: 'List Code Reviews',
 		description: 'List code reviews with optional filter.',
@@ -464,9 +464,9 @@ server.registerTool(
 	},
 );
 
-// 15. plastic_get_review_audit — Full review audit with resolved comments
+// 15. bpscm_get_review_audit — Full review audit with resolved comments
 server.registerTool(
-	'plastic_get_review_audit',
+	'bpscm_get_review_audit',
 	{
 		title: 'Get Code Review Audit',
 		description: `Get a code review's full audit log: review metadata plus all comments with resolved file paths and line numbers, grouped by file.
@@ -490,9 +490,9 @@ Provide either reviewId (direct lookup) or branch (finds first review targeting 
 	},
 );
 
-// 16. plastic_add — Add private files to source control
+// 16. bpscm_add — Add private files to source control
 server.registerTool(
-	'plastic_add',
+	'bpscm_add',
 	{
 		title: 'Add Files to Source Control',
 		description: `Add private (untracked) files to Plastic SCM source control. Private files (PR) exist on disk but are not tracked — they CANNOT be checked in until added.
@@ -507,30 +507,30 @@ Supports exact file paths and directory prefixes (e.g. "Assets/Scripts/AbilityCh
 	},
 	async ({ paths, auto_add_meta }) => {
 		try {
-			audit('plastic_add', 'invoked', { pathCount: paths.length, auto_add_meta });
+			audit('bpscm_add', 'invoked', { pathCount: paths.length, auto_add_meta });
 			const added = await getService().addToSourceControl(paths, { autoMeta: auto_add_meta !== false });
 			if (added.length === 0) {
 				return errorResult(
 					'No private (PR) files matched the given paths. ' +
-					'Files must be PR (untracked) to be added. Use plastic_status to see current file states.',
+					'Files must be PR (untracked) to be added. Use bpscm_status to see current file states.',
 				);
 			}
-			audit('plastic_add', 'completed', { addedCount: added.length });
+			audit('bpscm_add', 'completed', { addedCount: added.length });
 			return jsonResult({
 				addedFiles: added.length,
 				paths: added,
 				message: `Added ${added.length} file(s) to source control. They are now AD (added) and can be checked in.`,
 			});
 		} catch (err) {
-			audit('plastic_add', 'error', { error: err instanceof Error ? err.message : String(err) });
+			audit('bpscm_add', 'error', { error: err instanceof Error ? err.message : String(err) });
 			return errorResult(err instanceof Error ? err.message : String(err));
 		}
 	},
 );
 
-// 17. plastic_undo_checkout — Revert checkouts on specific files
+// 17. bpscm_undo_checkout — Revert checkouts on specific files
 server.registerTool(
-	'plastic_undo_checkout',
+	'bpscm_undo_checkout',
 	{
 		title: 'Undo Checkout',
 		description: `Revert (undo) the checkout on specific files, restoring them to their last checked-in version.
@@ -541,12 +541,12 @@ IMPORTANT — WHAT THIS ACTUALLY DOES:
 - On CH (changed) files: Reverts to last checked-in version. Local edits are DISCARDED.
 
 SAFETY GUARDS:
-- NEVER operates on AD (added) or PR (private) files. For AD files, 'undo checkout' means DELETE — use plastic_discard_add instead if you truly want that.
+- NEVER operates on AD (added) or PR (private) files. For AD files, 'undo checkout' means DELETE — use bpscm_discard_add instead if you truly want that.
 - Blocks bulk operations on more than ${BULK_OPERATION_THRESHOLD} files.
 - Reports exactly which files will lose local modifications BEFORE executing.
 - All operations are audit-logged.
 
-To simply un-stage files without discarding changes, use plastic_unstage.`,
+To simply un-stage files without discarding changes, use bpscm_unstage.`,
 		inputSchema: z.object({
 			paths: z.array(z.string()).describe('File paths to undo checkout on (CO files only)'),
 			confirm_bulk: z.boolean().optional().describe(`Required when reverting more than ${BULK_OPERATION_THRESHOLD} files. (default: false)`),
@@ -554,11 +554,11 @@ To simply un-stage files without discarding changes, use plastic_unstage.`,
 	},
 	async ({ paths, confirm_bulk }) => {
 		try {
-			audit('plastic_undo_checkout', 'invoked', { pathCount: paths.length, confirm_bulk });
+			audit('bpscm_undo_checkout', 'invoked', { pathCount: paths.length, confirm_bulk });
 
 			// Guard 1: Bulk operation threshold
 			if (paths.length > BULK_OPERATION_THRESHOLD && !confirm_bulk) {
-				audit('plastic_undo_checkout', 'blocked_bulk', { pathCount: paths.length });
+				audit('bpscm_undo_checkout', 'blocked_bulk', { pathCount: paths.length });
 				return errorResult(
 					`Refusing to undo checkout on ${paths.length} files (threshold: ${BULK_OPERATION_THRESHOLD}). ` +
 					`This is a safety guard against accidental mass reverts. ` +
@@ -595,7 +595,7 @@ To simply un-stage files without discarding changes, use plastic_unstage.`,
 
 			// Hard block on destructive paths — NEVER silently delete AD files
 			if (destructivePaths.length > 0) {
-				audit('plastic_undo_checkout', 'blocked_destructive', {
+				audit('bpscm_undo_checkout', 'blocked_destructive', {
 					destructiveCount: destructivePaths.length,
 					safeCount: safePaths.length,
 				});
@@ -609,8 +609,8 @@ To simply un-stage files without discarding changes, use plastic_unstage.`,
 					destructivePaths.length > 20 ? `  ... and ${destructivePaths.length - 20} more` : '',
 					``,
 					`What you probably want instead:`,
-					`  - To check in these files: use plastic_add then plastic_checkin`,
-					`  - To un-stage without losing changes: use plastic_unstage`,
+					`  - To check in these files: use bpscm_add then bpscm_checkin`,
+					`  - To un-stage without losing changes: use bpscm_unstage`,
 				];
 				if (safePaths.length > 0) {
 					msg.push(
@@ -626,7 +626,7 @@ To simply un-stage files without discarding changes, use plastic_unstage.`,
 				return errorResult(
 					`All ${privatePaths.length} file(s) are private (PR/untracked). ` +
 					`There is nothing to undo — these files were never checked out. ` +
-					`Use plastic_add to add them to source control, or plastic_checkin with auto_add_private=true.`,
+					`Use bpscm_add to add them to source control, or bpscm_checkin with auto_add_private=true.`,
 				);
 			}
 
@@ -652,9 +652,9 @@ To simply un-stage files without discarding changes, use plastic_unstage.`,
 						getBaseContent: async (filePath) => backend().getBaseRevisionContent(filePath),
 						backupBaseDir: process.env.PLASTIC_BACKUP_DIR,
 					});
-					audit('plastic_undo_checkout', 'backup_created', { backupPath, fileCount: safePaths.length });
+					audit('bpscm_undo_checkout', 'backup_created', { backupPath, fileCount: safePaths.length });
 				} catch (backupErr) {
-					audit('plastic_undo_checkout', 'backup_failed', {
+					audit('bpscm_undo_checkout', 'backup_failed', {
 						error: backupErr instanceof Error ? backupErr.message : String(backupErr),
 					});
 				}
@@ -663,7 +663,7 @@ To simply un-stage files without discarding changes, use plastic_unstage.`,
 			// Execute
 			const reverted = safePaths.length > 0 ? await backend().undoCheckout(safePaths) : [];
 			store.remove(reverted);
-			audit('plastic_undo_checkout', 'completed', {
+			audit('bpscm_undo_checkout', 'completed', {
 				revertedCount: reverted.length,
 				criticalCount: criticalFiles.length,
 				skippedPrivate: privatePaths.length,
@@ -687,19 +687,19 @@ To simply un-stage files without discarding changes, use plastic_unstage.`,
 			}
 			if (backupPath) {
 				result.backupPath = backupPath;
-				result.backupNote = `Working copies backed up to ${backupPath}. Use plastic_restore_backup to recover if needed.`;
+				result.backupNote = `Working copies backed up to ${backupPath}. Use bpscm_restore_backup to recover if needed.`;
 			}
 			return jsonResult(result);
 		} catch (err) {
-			audit('plastic_undo_checkout', 'error', { error: err instanceof Error ? err.message : String(err) });
+			audit('bpscm_undo_checkout', 'error', { error: err instanceof Error ? err.message : String(err) });
 			return errorResult(err instanceof Error ? err.message : String(err));
 		}
 	},
 );
 
-// 18. plastic_clean_stale — Auto-detect and undo stale checkouts
+// 18. bpscm_clean_stale — Auto-detect and undo stale checkouts
 server.registerTool(
-	'plastic_clean_stale',
+	'bpscm_clean_stale',
 	{
 		title: 'Clean Stale Checkouts',
 		description: `Automatically detect and undo stale checkouts (CO files with no real changes).
@@ -721,7 +721,7 @@ Run this before checkin to avoid commit failures from unchanged files.`,
 			// Default to dry_run=true for safety
 			const isDryRun = dry_run !== false;
 
-			audit('plastic_clean_stale', 'invoked', { dry_run: isDryRun, confirm_bulk });
+			audit('bpscm_clean_stale', 'invoked', { dry_run: isDryRun, confirm_bulk });
 
 			const status = await backend().getStatus(false);
 			// SAFETY: Only target CO (checkedOut) files. Never AD, CH, PR, DE, or any other type.
@@ -735,7 +735,7 @@ Run this before checkin to avoid commit failures from unchanged files.`,
 			const changedFiles = status.changes.filter(c => c.changeType === 'changed').length;
 
 			if (staleFiles.length === 0) {
-				audit('plastic_clean_stale', 'no_stale_found');
+				audit('bpscm_clean_stale', 'no_stale_found');
 				return textResult(
 					`No stale checkouts (CO) detected. ` +
 					`Workspace has ${addedFiles} added and ${changedFiles} changed file(s) — these are left untouched.`,
@@ -743,7 +743,7 @@ Run this before checkin to avoid commit failures from unchanged files.`,
 			}
 
 			if (isDryRun) {
-				audit('plastic_clean_stale', 'dry_run', { staleCount: staleFiles.length });
+				audit('bpscm_clean_stale', 'dry_run', { staleCount: staleFiles.length });
 				return jsonResult({
 					staleFiles,
 					count: staleFiles.length,
@@ -754,7 +754,7 @@ Run this before checkin to avoid commit failures from unchanged files.`,
 
 			// Guard: Bulk operation threshold
 			if (staleFiles.length > BULK_OPERATION_THRESHOLD && !confirm_bulk) {
-				audit('plastic_clean_stale', 'blocked_bulk', { staleCount: staleFiles.length });
+				audit('bpscm_clean_stale', 'blocked_bulk', { staleCount: staleFiles.length });
 				return errorResult(
 					`Found ${staleFiles.length} stale checkouts (threshold: ${BULK_OPERATION_THRESHOLD}). ` +
 					`Set confirm_bulk=true to proceed with mass revert.\n\n` +
@@ -777,9 +777,9 @@ Run this before checkin to avoid commit failures from unchanged files.`,
 					getBaseContent: async (filePath) => backend().getBaseRevisionContent(filePath),
 					backupBaseDir: process.env.PLASTIC_BACKUP_DIR,
 				});
-				audit('plastic_clean_stale', 'backup_created', { backupPath, fileCount: staleFiles.length });
+				audit('bpscm_clean_stale', 'backup_created', { backupPath, fileCount: staleFiles.length });
 			} catch (backupErr) {
-				audit('plastic_clean_stale', 'backup_failed', {
+				audit('bpscm_clean_stale', 'backup_failed', {
 					error: backupErr instanceof Error ? backupErr.message : String(backupErr),
 				});
 			}
@@ -792,7 +792,7 @@ Run this before checkin to avoid commit failures from unchanged files.`,
 				UNITY_CRITICAL_EXTENSIONS.some(ext => p.endsWith(ext)),
 			);
 
-			audit('plastic_clean_stale', 'completed', {
+			audit('bpscm_clean_stale', 'completed', {
 				revertedCount: reverted.length,
 				criticalCount: criticalReverted.length,
 				addedSkipped: addedFiles,
@@ -811,19 +811,19 @@ Run this before checkin to avoid commit failures from unchanged files.`,
 			}
 			if (backupPath) {
 				result.backupPath = backupPath;
-				result.backupNote = `Working copies backed up to ${backupPath}. Use plastic_restore_backup to recover if needed.`;
+				result.backupNote = `Working copies backed up to ${backupPath}. Use bpscm_restore_backup to recover if needed.`;
 			}
 			return jsonResult(result);
 		} catch (err) {
-			audit('plastic_clean_stale', 'error', { error: err instanceof Error ? err.message : String(err) });
+			audit('bpscm_clean_stale', 'error', { error: err instanceof Error ? err.message : String(err) });
 			return errorResult(err instanceof Error ? err.message : String(err));
 		}
 	},
 );
 
-// 19. plastic_restore_backup — List, preview, and restore from automatic backups
+// 19. bpscm_restore_backup — List, preview, and restore from automatic backups
 server.registerTool(
-	'plastic_restore_backup',
+	'bpscm_restore_backup',
 	{
 		title: 'Restore from Backup',
 		description: `List, preview, and restore files from automatic pre-operation backups.
@@ -876,13 +876,13 @@ ACTIONS:
 			}
 
 			if (action === 'restore') {
-				audit('plastic_restore_backup', 'restore_invoked', { backup_id, filterPaths: paths?.length ?? 'all' });
+				audit('bpscm_restore_backup', 'restore_invoked', { backup_id, filterPaths: paths?.length ?? 'all' });
 				const restored = await restoreBackup(wsName, wsRoot, backup_id, paths, process.env.PLASTIC_BACKUP_DIR);
-				audit('plastic_restore_backup', 'restore_completed', { restoredCount: restored.length });
+				audit('bpscm_restore_backup', 'restore_completed', { restoredCount: restored.length });
 				return jsonResult({
 					restoredFiles: restored.length,
 					paths: restored,
-					message: `Restored ${restored.length} file(s) to workspace. These are now local modifications — use plastic_status to see them, then plastic_checkin to commit.`,
+					message: `Restored ${restored.length} file(s) to workspace. These are now local modifications — use bpscm_status to see them, then bpscm_checkin to commit.`,
 				});
 			}
 
@@ -895,10 +895,10 @@ ACTIONS:
 
 // ── Resources ────────────────────────────────────────────────────────
 
-// plastic://workspace/status — Current workspace status
+// bpscm://workspace/status — Current workspace status
 server.registerResource(
 	'workspace-status',
-	'plastic://workspace/status',
+	'bpscm://workspace/status',
 	{
 		title: 'Workspace Status',
 		description: 'Current pending changes and branch info',
@@ -925,10 +925,10 @@ server.registerResource(
 	},
 );
 
-// plastic://workspace/branch — Current branch name
+// bpscm://workspace/branch — Current branch name
 server.registerResource(
 	'workspace-branch',
-	'plastic://workspace/branch',
+	'bpscm://workspace/branch',
 	{
 		title: 'Current Branch',
 		description: 'The currently active branch',
@@ -944,10 +944,10 @@ server.registerResource(
 	},
 );
 
-// plastic://workspace/staged — Currently staged files
+// bpscm://workspace/staged — Currently staged files
 server.registerResource(
 	'workspace-staged',
-	'plastic://workspace/staged',
+	'bpscm://workspace/staged',
 	{
 		title: 'Staged Files',
 		description: 'Files currently staged for checkin',
@@ -963,9 +963,9 @@ server.registerResource(
 
 // ── Prompts ──────────────────────────────────────────────────────────
 
-// plastic_commit_message — Generate a commit message from staged changes
+// bpscm_commit_message — Generate a commit message from staged changes
 server.registerPrompt(
-	'plastic_commit_message',
+	'bpscm_commit_message',
 	{
 		title: 'Generate Commit Message',
 		description: 'Generate a commit message based on the current staged changes.',
@@ -999,9 +999,9 @@ server.registerPrompt(
 	},
 );
 
-// plastic_review_summary — Summarize changes for a code review
+// bpscm_review_summary — Summarize changes for a code review
 server.registerPrompt(
-	'plastic_review_summary',
+	'bpscm_review_summary',
 	{
 		title: 'Code Review Summary',
 		description: 'Generate a summary of changes for a code review.',
@@ -1067,6 +1067,13 @@ async function trySetupHybridBackend(workspacePath: string): Promise<boolean> {
 			if (wsInfo.cloudServerId) hints.push(wsInfo.cloudServerId);
 			if (wsInfo.organizationName) hints.push(wsInfo.organizationName);
 			if (hints.length > 0) setOrgNameHints(hints);
+
+			// The numeric cloud server ID is the only variant that works reliably
+			// against the Plastic Cloud API. Set it as the resolved org name so
+			// getOrgName() returns it instead of the slug (e.g. "head-first-studios-bv").
+			if (wsInfo.cloudServerId) {
+				setResolvedOrgName(wsInfo.cloudServerId);
+			}
 		}
 
 		process.stderr.write(`REST API configured: org="${config.organizationName}", repo="${config.repositoryName}", user="${cachedToken.user}"\n`);
@@ -1096,7 +1103,7 @@ async function main() {
 	if (!hybridReady) {
 		setBackend(new CliBackend());
 	}
-	process.stderr.write(`Plastic SCM MCP server started (${hybridReady ? 'hybrid' : 'CLI-only'} backend, workspace: ${workspace})\n`);
+	process.stderr.write(`BetterPSCM MCP server started (${hybridReady ? 'hybrid' : 'CLI-only'} backend, workspace: ${workspace})\n`);
 
 	// Connect via stdio
 	const transport = new StdioServerTransport();

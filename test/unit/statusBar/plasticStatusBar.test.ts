@@ -55,7 +55,7 @@ describe('PlasticStatusBar', () => {
 		await statusBar.update();
 
 		const branchItem = window.createStatusBarItem.mock.results[0].value;
-		expect(branchItem.text).toContain('Plastic SCM');
+		expect(branchItem.text).toContain('BetterPSCM');
 	});
 
 	it('shows fallback on branch error', async () => {
@@ -63,7 +63,7 @@ describe('PlasticStatusBar', () => {
 		await statusBar.update();
 
 		const branchItem = window.createStatusBarItem.mock.results[0].value;
-		expect(branchItem.text).toContain('Plastic SCM');
+		expect(branchItem.text).toContain('BetterPSCM');
 	});
 
 	it('shows "No changes" when count is 0', async () => {

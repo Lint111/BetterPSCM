@@ -1,18 +1,18 @@
 {
-  "name": "plastic-scm-pro",
-  "displayName": "Plastic SCM Pro",
+  "name": "betterpscm",
+  "displayName": "BetterPSCM",
   "description": "Feature-complete Plastic SCM integration for VS Code — staging, diffs, branches, code reviews, and AI agent support via MCP",
   "version": "0.1.0",
-  "publisher": "betterscm",
+  "publisher": "betterpscm",
   "license": "MIT",
   "icon": "media/icon.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/betterscm/plastic-scm-pro"
+    "url": "https://github.com/betterpscm/betterpscm"
   },
-  "homepage": "https://github.com/betterscm/plastic-scm-pro#readme",
+  "homepage": "https://github.com/betterpscm/betterpscm#readme",
   "bugs": {
-    "url": "https://github.com/betterscm/plastic-scm-pro/issues"
+    "url": "https://github.com/betterpscm/betterpscm/issues"
   },
   "keywords": [
     "plastic scm",
@@ -48,366 +48,377 @@
   "contributes": {
     "commands": [
       {
-        "command": "plasticScm.stage",
+        "command": "bpscm.stage",
         "title": "Stage",
         "icon": "$(add)",
-        "category": "Plastic SCM"
+        "category": "BetterPSCM"
       },
       {
-        "command": "plasticScm.unstage",
+        "command": "bpscm.unstage",
         "title": "Unstage",
         "icon": "$(remove)",
-        "category": "Plastic SCM"
+        "category": "BetterPSCM"
       },
       {
-        "command": "plasticScm.stageAll",
+        "command": "bpscm.stageAll",
         "title": "Stage All Changes",
         "icon": "$(add)",
-        "category": "Plastic SCM"
+        "category": "BetterPSCM"
       },
       {
-        "command": "plasticScm.unstageAll",
+        "command": "bpscm.unstageAll",
         "title": "Unstage All",
         "icon": "$(remove)",
-        "category": "Plastic SCM"
+        "category": "BetterPSCM"
       },
       {
-        "command": "plasticScm.checkin",
+        "command": "bpscm.checkin",
         "title": "Check In Staged",
         "icon": "$(check)",
-        "category": "Plastic SCM"
+        "category": "BetterPSCM"
       },
       {
-        "command": "plasticScm.checkinAll",
+        "command": "bpscm.checkinAll",
         "title": "Check In All",
-        "category": "Plastic SCM"
+        "category": "BetterPSCM"
       },
       {
-        "command": "plasticScm.refresh",
+        "command": "bpscm.refresh",
         "title": "Refresh",
         "icon": "$(refresh)",
-        "category": "Plastic SCM"
+        "category": "BetterPSCM"
       },
       {
-        "command": "plasticScm.openChange",
+        "command": "bpscm.openChange",
         "title": "Open Changes",
         "icon": "$(git-compare)",
-        "category": "Plastic SCM"
+        "category": "BetterPSCM"
       },
       {
-        "command": "plasticScm.openFile",
+        "command": "bpscm.openFile",
         "title": "Open File",
         "icon": "$(go-to-file)",
-        "category": "Plastic SCM"
+        "category": "BetterPSCM"
       },
       {
-        "command": "plasticScm.revertChange",
+        "command": "bpscm.revertChange",
         "title": "Revert Change",
         "icon": "$(discard)",
-        "category": "Plastic SCM"
+        "category": "BetterPSCM"
       },
       {
-        "command": "plasticScm.switchBranch",
+        "command": "bpscm.switchBranch",
         "title": "Switch Branch...",
-        "category": "Plastic SCM"
+        "category": "BetterPSCM"
       },
       {
-        "command": "plasticScm.createBranch",
+        "command": "bpscm.createBranch",
         "title": "Create Branch...",
-        "category": "Plastic SCM"
+        "category": "BetterPSCM"
       },
       {
-        "command": "plasticScm.deleteBranch",
+        "command": "bpscm.deleteBranch",
         "title": "Delete Branch",
-        "category": "Plastic SCM"
+        "category": "BetterPSCM"
       },
       {
-        "command": "plasticScm.mergeTo",
+        "command": "bpscm.mergeTo",
         "title": "Merge To...",
-        "category": "Plastic SCM"
+        "category": "BetterPSCM"
       },
       {
-        "command": "plasticScm.createCodeReview",
+        "command": "bpscm.createCodeReview",
         "title": "Create Code Review...",
-        "category": "Plastic SCM"
+        "category": "BetterPSCM"
       },
       {
-        "command": "plasticScm.openCodeReview",
+        "command": "bpscm.openCodeReview",
         "title": "Open Code Review",
-        "category": "Plastic SCM"
+        "icon": "$(open-preview)",
+        "category": "BetterPSCM"
       },
       {
-        "command": "plasticScm.inspectReviewComments",
+        "command": "bpscm.inspectReviewComments",
         "title": "Inspect Review Comments",
         "icon": "$(comment-discussion)",
-        "category": "Plastic SCM"
+        "category": "BetterPSCM"
       },
       {
-        "command": "plasticScm.nextReviewComment",
+        "command": "bpscm.nextReviewComment",
         "title": "Next Review Comment",
         "icon": "$(arrow-down)",
-        "category": "Plastic SCM"
+        "category": "BetterPSCM"
       },
       {
-        "command": "plasticScm.prevReviewComment",
+        "command": "bpscm.prevReviewComment",
         "title": "Previous Review Comment",
         "icon": "$(arrow-up)",
-        "category": "Plastic SCM"
+        "category": "BetterPSCM"
       },
       {
-        "command": "plasticScm.exportReviewAudit",
+        "command": "bpscm.exportReviewAudit",
         "title": "Export Review Audit",
         "icon": "$(export)",
-        "category": "Plastic SCM"
+        "category": "BetterPSCM"
       },
       {
-        "command": "plasticScm.createLabel",
+        "command": "bpscm.createLabel",
         "title": "Create Label...",
-        "category": "Plastic SCM"
+        "category": "BetterPSCM"
       },
       {
-        "command": "plasticScm.update",
+        "command": "bpscm.update",
         "title": "Update Workspace",
         "icon": "$(cloud-download)",
-        "category": "Plastic SCM"
+        "category": "BetterPSCM"
       },
       {
-        "command": "plasticScm.showFileHistory",
+        "command": "bpscm.showFileHistory",
         "title": "Show File History",
-        "category": "Plastic SCM"
+        "category": "BetterPSCM"
       },
       {
-        "command": "plasticScm.annotateFile",
+        "command": "bpscm.annotateFile",
         "title": "Annotate (Blame)",
-        "category": "Plastic SCM"
+        "category": "BetterPSCM"
       },
       {
-        "command": "plasticScm.login",
+        "command": "bpscm.login",
         "title": "Sign In...",
-        "category": "Plastic SCM"
+        "category": "BetterPSCM"
       },
       {
-        "command": "plasticScm.logout",
+        "command": "bpscm.logout",
         "title": "Sign Out",
-        "category": "Plastic SCM"
+        "category": "BetterPSCM"
       },
       {
-        "command": "plasticScm.showHistoryGraph",
+        "command": "bpscm.showHistoryGraph",
         "title": "Show History Graph",
         "icon": "$(git-commit)",
-        "category": "Plastic SCM"
+        "category": "BetterPSCM"
       },
       {
-        "command": "plasticScm.listLockRules",
+        "command": "bpscm.listLockRules",
         "title": "List Lock Rules",
-        "category": "Plastic SCM"
+        "category": "BetterPSCM"
       },
       {
-        "command": "plasticScm.createLockRule",
+        "command": "bpscm.createLockRule",
         "title": "Create Lock Rule...",
-        "category": "Plastic SCM"
+        "category": "BetterPSCM"
       },
       {
-        "command": "plasticScm.deleteLockRules",
+        "command": "bpscm.deleteLockRules",
         "title": "Delete All Lock Rules",
-        "category": "Plastic SCM"
+        "category": "BetterPSCM"
       },
       {
-        "command": "plasticScm.releaseLocks",
+        "command": "bpscm.releaseLocks",
         "title": "Release Locks...",
-        "category": "Plastic SCM"
+        "category": "BetterPSCM"
       }
     ],
     "menus": {
       "scm/title": [
         {
-          "command": "plasticScm.checkin",
+          "command": "bpscm.checkin",
           "group": "navigation",
-          "when": "scmProvider == plasticScm"
+          "when": "scmProvider == bpscm"
         },
         {
-          "command": "plasticScm.refresh",
+          "command": "bpscm.refresh",
           "group": "navigation",
-          "when": "scmProvider == plasticScm"
+          "when": "scmProvider == bpscm"
         },
         {
-          "command": "plasticScm.update",
+          "command": "bpscm.update",
           "group": "navigation",
-          "when": "scmProvider == plasticScm"
+          "when": "scmProvider == bpscm"
         },
         {
-          "command": "plasticScm.stageAll",
+          "command": "bpscm.stageAll",
           "group": "1_staging",
-          "when": "scmProvider == plasticScm"
+          "when": "scmProvider == bpscm"
         },
         {
-          "command": "plasticScm.unstageAll",
+          "command": "bpscm.unstageAll",
           "group": "1_staging",
-          "when": "scmProvider == plasticScm"
+          "when": "scmProvider == bpscm"
         },
         {
-          "command": "plasticScm.checkinAll",
+          "command": "bpscm.checkinAll",
           "group": "2_checkin",
-          "when": "scmProvider == plasticScm"
+          "when": "scmProvider == bpscm"
         }
       ],
       "scm/resourceGroup/context": [
         {
-          "command": "plasticScm.stageAll",
-          "when": "scmProvider == plasticScm && scmResourceGroup == changes",
+          "command": "bpscm.stageAll",
+          "when": "scmProvider == bpscm && scmResourceGroup == changes",
           "group": "inline"
         },
         {
-          "command": "plasticScm.unstageAll",
-          "when": "scmProvider == plasticScm && scmResourceGroup == staged",
+          "command": "bpscm.unstageAll",
+          "when": "scmProvider == bpscm && scmResourceGroup == staged",
           "group": "inline"
         }
       ],
       "scm/resourceState/context": [
         {
-          "command": "plasticScm.stage",
-          "when": "scmProvider == plasticScm && scmResourceGroup == changes",
+          "command": "bpscm.stage",
+          "when": "scmProvider == bpscm && scmResourceGroup == changes",
           "group": "inline"
         },
         {
-          "command": "plasticScm.unstage",
-          "when": "scmProvider == plasticScm && scmResourceGroup == staged",
+          "command": "bpscm.unstage",
+          "when": "scmProvider == bpscm && scmResourceGroup == staged",
           "group": "inline"
         },
         {
-          "command": "plasticScm.openFile",
-          "when": "scmProvider == plasticScm",
+          "command": "bpscm.openFile",
+          "when": "scmProvider == bpscm",
           "group": "inline"
         },
         {
-          "command": "plasticScm.openChange",
-          "when": "scmProvider == plasticScm",
+          "command": "bpscm.openChange",
+          "when": "scmProvider == bpscm",
           "group": "navigation"
         },
         {
-          "command": "plasticScm.revertChange",
-          "when": "scmProvider == plasticScm",
+          "command": "bpscm.revertChange",
+          "when": "scmProvider == bpscm",
           "group": "1_modification"
         },
         {
-          "command": "plasticScm.showFileHistory",
-          "when": "scmProvider == plasticScm",
+          "command": "bpscm.showFileHistory",
+          "when": "scmProvider == bpscm",
           "group": "2_history"
         }
       ],
       "view/item/context": [
         {
-          "command": "plasticScm.openCodeReview",
-          "when": "view == plasticScm.codeReviewsView && viewItem == codeReview",
+          "command": "bpscm.openCodeReview",
+          "when": "view == bpscm.codeReviewsView && viewItem == codeReview",
           "group": "navigation"
         },
         {
-          "command": "plasticScm.inspectReviewComments",
-          "when": "view == plasticScm.codeReviewsView && viewItem == codeReview",
+          "command": "bpscm.inspectReviewComments",
+          "when": "view == bpscm.codeReviewsView && viewItem == codeReview",
           "group": "navigation"
+        },
+        {
+          "command": "bpscm.inspectReviewComments",
+          "when": "view == bpscm.codeReviewsView && viewItem == codeReview",
+          "group": "inline@1"
+        },
+        {
+          "command": "bpscm.openCodeReview",
+          "when": "view == bpscm.codeReviewsView && viewItem == codeReview",
+          "group": "inline@2"
         }
       ],
       "view/title": [
         {
-          "command": "plasticScm.createCodeReview",
-          "when": "view == plasticScm.codeReviewsView",
+          "command": "bpscm.createCodeReview",
+          "when": "view == bpscm.codeReviewsView",
           "group": "navigation"
         },
         {
-          "command": "plasticScm.nextReviewComment",
-          "when": "view == plasticScm.reviewCommentsView",
+          "command": "bpscm.nextReviewComment",
+          "when": "view == bpscm.reviewCommentsView",
           "group": "navigation"
         },
         {
-          "command": "plasticScm.prevReviewComment",
-          "when": "view == plasticScm.reviewCommentsView",
+          "command": "bpscm.prevReviewComment",
+          "when": "view == bpscm.reviewCommentsView",
           "group": "navigation"
         },
         {
-          "command": "plasticScm.exportReviewAudit",
-          "when": "view == plasticScm.reviewCommentsView",
+          "command": "bpscm.exportReviewAudit",
+          "when": "view == bpscm.reviewCommentsView",
           "group": "navigation"
         }
       ],
       "editor/title": [
         {
-          "command": "plasticScm.openFile",
-          "when": "isInDiffEditor && resourceScheme == file && plasticScm.isActive",
+          "command": "bpscm.openFile",
+          "when": "isInDiffEditor && resourceScheme == file && bpscm.isActive",
           "group": "navigation"
         },
         {
-          "command": "plasticScm.showFileHistory",
-          "when": "plasticScm.isActive",
+          "command": "bpscm.showFileHistory",
+          "when": "bpscm.isActive",
           "group": "navigation"
         },
         {
-          "command": "plasticScm.annotateFile",
-          "when": "plasticScm.isActive",
+          "command": "bpscm.annotateFile",
+          "when": "bpscm.isActive",
           "group": "navigation"
         }
       ]
     },
     "mcpServerDefinitionProviders": [
       {
-        "id": "plasticScmMcp",
-        "label": "Plastic SCM"
+        "id": "bpscmMcp",
+        "label": "BetterPSCM"
       }
     ],
     "views": {
       "scm": [
         {
-          "id": "plasticScm.historyGraphView",
+          "id": "bpscm.historyGraphView",
           "type": "webview",
           "name": "Graph",
-          "when": "plasticScm.isActive"
+          "when": "bpscm.isActive"
         },
         {
-          "id": "plasticScm.codeReviewsView",
+          "id": "bpscm.codeReviewsView",
           "name": "Code Reviews",
-          "when": "plasticScm.isActive"
+          "when": "bpscm.isActive"
         },
         {
-          "id": "plasticScm.reviewCommentsView",
+          "id": "bpscm.reviewCommentsView",
           "name": "Review Comments",
-          "when": "plasticScm.isActive && plasticScm.reviewActive"
+          "when": "bpscm.isActive && bpscm.reviewActive"
         }
       ]
     },
     "configuration": {
-      "title": "Plastic SCM",
+      "title": "BetterPSCM",
       "properties": {
-        "plasticScm.serverUrl": {
+        "bpscm.serverUrl": {
           "type": "string",
           "default": "",
           "description": "Plastic SCM server URL (e.g., https://cloud.plasticscm.com or http://localhost:7178)"
         },
-        "plasticScm.organizationName": {
+        "bpscm.organizationName": {
           "type": "string",
           "default": "",
           "description": "Organization name"
         },
-        "plasticScm.repositoryName": {
+        "bpscm.repositoryName": {
           "type": "string",
           "default": "",
           "description": "Repository name"
         },
-        "plasticScm.workspaceGuid": {
+        "bpscm.workspaceGuid": {
           "type": "string",
           "default": "",
           "description": "Workspace GUID (auto-detected if possible)"
         },
-        "plasticScm.pollInterval": {
+        "bpscm.pollInterval": {
           "type": "number",
           "default": 3000,
           "minimum": 1000,
           "description": "Status polling interval in milliseconds"
         },
-        "plasticScm.showPrivateFiles": {
+        "bpscm.showPrivateFiles": {
           "type": "boolean",
           "default": true,
           "description": "Show private (unversioned) files in changes list"
         },
-        "plasticScm.mcp.enabled": {
+        "bpscm.mcp.enabled": {
           "type": "boolean",
           "default": false,
           "description": "Enable MCP server for AI agent integration"

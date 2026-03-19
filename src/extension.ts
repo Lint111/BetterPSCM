@@ -35,7 +35,7 @@ import { HybridBackend } from './core/backendHybrid';
 const disposables = new DisposableStore();
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-	log('Plastic SCM Pro extension activating...');
+	log('BetterPSCM extension activating...');
 
 	// Initialize auth with secret storage
 	initAuth(context.secrets);
@@ -64,7 +64,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	if (!isConfigured()) {
 		log('Extension not configured. Waiting for settings.');
 		const welcomeProvider = disposables.add(
-			vscode.scm.createSourceControl('plasticScm', 'Plastic SCM'),
+			vscode.scm.createSourceControl('bpscm', 'BetterPSCM'),
 		);
 		welcomeProvider.inputBox.placeholder = 'Configure Plastic SCM settings to get started';
 		context.subscriptions.push(disposables);
@@ -72,7 +72,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		// Watch for config changes
 		context.subscriptions.push(
 			vscode.workspace.onDidChangeConfiguration(e => {
-				if (e.affectsConfiguration('plasticScm')) {
+				if (e.affectsConfiguration('bpscm')) {
 					if (isConfigured()) {
 						log('Configuration detected, reactivating...');
 						disposables.dispose();
@@ -87,7 +87,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	await setupProvider(context);
 	context.subscriptions.push(disposables);
 
-	log('Plastic SCM Pro extension activated');
+	log('BetterPSCM extension activated');
 }
 
 /**
@@ -168,7 +168,7 @@ async function autoDetectAndConfigure(): Promise<void> {
 		}
 
 		vscode.window.showInformationMessage(
-			`Plastic SCM: Auto-detected workspace "${info.workspaceName}" on branch ${info.currentBranch}`,
+			`BetterPSCM: Auto-detected workspace "${info.workspaceName}" on branch ${info.currentBranch}`,
 		);
 	}
 }
@@ -244,7 +244,7 @@ async function setupProvider(context: vscode.ExtensionContext): Promise<void> {
 	const codeReviewsTree = new CodeReviewsTreeProvider();
 	disposables.add(codeReviewsTree);
 	context.subscriptions.push(
-		vscode.window.createTreeView('plasticScm.codeReviewsView', {
+		vscode.window.createTreeView('bpscm.codeReviewsView', {
 			treeDataProvider: codeReviewsTree,
 		}),
 	);
@@ -253,7 +253,7 @@ async function setupProvider(context: vscode.ExtensionContext): Promise<void> {
 	const reviewCommentsTree = new ReviewCommentsTreeProvider();
 	disposables.add(reviewCommentsTree);
 	context.subscriptions.push(
-		vscode.window.createTreeView('plasticScm.reviewCommentsView', {
+		vscode.window.createTreeView('bpscm.reviewCommentsView', {
 			treeDataProvider: reviewCommentsTree,
 		}),
 	);
@@ -279,7 +279,7 @@ async function setupProvider(context: vscode.ExtensionContext): Promise<void> {
 	);
 	context.subscriptions.push(
 		vscode.commands.registerCommand(COMMANDS.showHistoryGraph, () => {
-			vscode.commands.executeCommand('plasticScm.historyGraphView.focus');
+			vscode.commands.executeCommand('bpscm.historyGraphView.focus');
 		}),
 	);
 
@@ -287,7 +287,7 @@ async function setupProvider(context: vscode.ExtensionContext): Promise<void> {
 	const statusBar = disposables.add(new PlasticStatusBar(provider));
 
 	// Set context key for when-clause visibility
-	vscode.commands.executeCommand('setContext', 'plasticScm.isActive', true);
+	vscode.commands.executeCommand('setContext', 'bpscm.isActive', true);
 
 	// Always start polling — pollStatus handles auth errors gracefully
 	provider.start();
@@ -308,9 +308,9 @@ async function setupProvider(context: vscode.ExtensionContext): Promise<void> {
 	// Watch for config changes
 	context.subscriptions.push(
 		vscode.workspace.onDidChangeConfiguration(e => {
-			if (e.affectsConfiguration('plasticScm')) {
+			if (e.affectsConfiguration('bpscm')) {
 				log('Configuration changed, consider restarting the extension');
-				if (e.affectsConfiguration('plasticScm.mcp.enabled')) {
+				if (e.affectsConfiguration('bpscm.mcp.enabled')) {
 					if (getConfig().mcpEnabled) {
 						mcpManager.start();
 					} else {
@@ -381,7 +381,7 @@ async function tryAutoLoginFromDesktopClient(): Promise<boolean> {
 		if (valid) {
 			log('Auto-login with Unity SSO token succeeded (direct Bearer)');
 			vscode.window.showInformationMessage(
-				`Plastic SCM: Signed in as ${cachedToken.user} (via Unity SSO)`,
+				`BetterPSCM: Signed in as ${cachedToken.user} (via Unity SSO)`,
 			);
 			return true;
 		}
@@ -393,7 +393,7 @@ async function tryAutoLoginFromDesktopClient(): Promise<boolean> {
 		if (success) {
 			log('Auto-login via /login/verify succeeded');
 			vscode.window.showInformationMessage(
-				`Plastic SCM: Signed in as ${cachedToken.user} (via Unity SSO)`,
+				`BetterPSCM: Signed in as ${cachedToken.user} (via Unity SSO)`,
 			);
 		}
 		return success;
@@ -424,5 +424,5 @@ function registerStubCommands(context: vscode.ExtensionContext): void {
 export function deactivate(): void {
 	disposables.dispose();
 	resetClient();
-	log('Plastic SCM Pro extension deactivated');
+	log('BetterPSCM extension deactivated');
 }

@@ -195,7 +195,7 @@ vscode-plastic-scm/
 7. ✅ `diffEditor.hideUnchangedRegions.enabled` for collapsed unchanged sections in diff views
 8. ✅ Move path parsing for `M "old" "new"` format from `cm diff`
 9. ✅ Parent revision resolution fallback (`changeset<=N ... order by desc limit 1`)
-10. 🔲 `src/commands/update.ts` — workspace update with conflict handling via `POST /workspaces/{guid}/update`
+10. ✅ `src/commands/update.ts` — workspace update with conflict handling via `POST /workspaces/{guid}/update`
 
 ### Phase 4: Code Reviews ✅ COMPLETE
 **Deliverable**: Full review lifecycle in VS Code.
@@ -207,7 +207,7 @@ vscode-plastic-scm/
 5. ✅ `src/views/codeReviewPanel.ts` — Webview panel with review details, reviewer management, threaded comments, status change
 6. ✅ `src/commands/codeReview.ts` — Create review (branch picker + title input), open review
 7. ✅ Backend-neutral types: `CodeReviewInfo`, `ReviewerInfo`, `ReviewCommentInfo`, `CreateReviewParams`, `CreateCommentParams`
-8. 🔲 Badge count for assigned reviews on the tree view icon (deferred)
+8. 🔲 Badge count for assigned reviews on the tree view icon (nice-to-have, deferred to Phase 7)
 
 ### Phase 5: Labels, Merges, History ✅ COMPLETE
 **Deliverable**: Feature parity with desktop client for daily operations.
@@ -219,19 +219,24 @@ vscode-plastic-scm/
 5. ✅ `src/commands/merge.ts` — Source/target branch pickers with conflict preview and merge execution
 6. ✅ `src/commands/label.ts` — Create label with changeset ID and comment
 7. ✅ Backend-neutral types: `LabelInfo`, `CreateLabelParams`, `FileHistoryEntry`, `BlameLine`, `MergeReport`, `MergeResult`
-8. 🔲 Lock management UI (deferred — low priority, rarely used in daily workflow)
+8. ✅ Lock management: 5 backend methods (listLockRules, createLockRule, deleteLockRules, deleteLockRulesForRepo, releaseLocks), REST v2 implementation, 4 commands (list/create/delete rules, release locks)
+9. ✅ Backend-neutral types: `LockRuleInfo`, `LockInfo`, `LockStatus`
 
-### Phase 6: MCP Server
+### Phase 6: MCP Server ✅ COMPLETE
 **Deliverable**: AI agents can stage, commit, diff, branch, review via MCP.
 
-14 tools: `plastic_status`, `plastic_stage`, `plastic_unstage`, `plastic_checkin`, `plastic_diff`, `plastic_file_diff`, `plastic_branches`, `plastic_create_branch`, `plastic_switch_branch`, `plastic_file_history`, `plastic_create_review`, `plastic_list_reviews`, `plastic_merge`, `plastic_annotate`
-
-Resources: `plastic://workspace/status`, `plastic://workspace/branch`, `plastic://workspace/staged`, etc.
-
-Prompts: `plastic_commit_message`, `plastic_review_summary`
+1. ✅ `src/mcp/server.ts` — Standalone MCP server process (stdio transport, cm CLI backend)
+2. ✅ 14 tools: `plastic_status`, `plastic_stage`, `plastic_unstage`, `plastic_checkin`, `plastic_diff`, `plastic_file_diff`, `plastic_branches`, `plastic_create_branch`, `plastic_switch_branch`, `plastic_file_history`, `plastic_create_review`, `plastic_list_reviews`, `plastic_merge`, `plastic_annotate`
+3. ✅ 3 resources: `plastic://workspace/status`, `plastic://workspace/branch`, `plastic://workspace/staged`
+4. ✅ 2 prompts: `plastic_commit_message` (conventional/descriptive/brief styles), `plastic_review_summary`
+5. ✅ `src/mcp/manager.ts` — Child process lifecycle manager (start/stop/dispose)
+6. ✅ `src/util/logger.ts` — Made vscode-independent with stderr fallback for standalone process
+7. ✅ `esbuild.config.mjs` — Dual bundle: `dist/extension.js` (186KB) + `dist/mcp-server.js` (750KB)
+8. ✅ Extension integration: auto-start when `plasticScm.mcp.enabled = true`, hot-toggle via config change
+9. ✅ Standalone usage: `node dist/mcp-server.js --workspace /path/to/workspace`
 
 ### Phase 7: Polish
-Locks UI, repo cloning, xlinks, keyboard shortcuts, incoming change notifications.
+Repo cloning, xlinks, keyboard shortcuts, incoming change notifications.
 
 ## Auto-Detection Details
 

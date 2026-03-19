@@ -5,7 +5,7 @@ import { buildPlasticUri, parsePlasticUri } from '../../../src/util/uri';
 describe('buildPlasticUri', () => {
 	it('builds a plastic: URI with revSpec in query', () => {
 		const uri = buildPlasticUri('ws-guid', 'rev-guid', 'src/foo.ts');
-		expect(uri.scheme).toBe('plastic');
+		expect(uri.scheme).toBe('bpscm');
 		expect(uri.authority).toBe('ws-guid');
 		expect(uri.path).toBe('/src/foo.ts');
 		expect(uri.query).toBe('rev-guid');
@@ -29,7 +29,7 @@ describe('parsePlasticUri', () => {
 	});
 
 	it('returns undefined when revSpec is missing', () => {
-		const uri = Uri.from({ scheme: 'plastic', authority: 'ws', path: '/file.ts' });
+		const uri = Uri.from({ scheme: 'bpscm', authority: 'ws', path: '/file.ts' });
 		expect(parsePlasticUri(uri as any)).toBeUndefined();
 	});
 

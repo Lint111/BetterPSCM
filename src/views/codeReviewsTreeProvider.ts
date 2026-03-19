@@ -54,10 +54,11 @@ export class CodeReviewsTreeProvider implements vscode.TreeDataProvider<ReviewTr
 				`#${r.id} by ${r.owner}`,
 				r.status,
 			);
+			item.reviewId = r.id;
 			item.tooltip = `${r.title}\nStatus: ${r.status}\nOwner: ${r.owner}\nTarget: ${r.targetType} ${r.targetSpec ?? ''}\nComments: ${r.commentsCount}`;
 			item.contextValue = 'codeReview';
 			item.command = {
-				command: 'plasticScm.openCodeReview',
+				command: 'bpscm.openCodeReview',
 				title: 'Open Code Review',
 				arguments: [r.id],
 			};
@@ -73,7 +74,10 @@ const STATUS_ICONS: Record<ReviewStatus | 'none', vscode.ThemeIcon> = {
 	'none': new vscode.ThemeIcon('info'),
 };
 
-class ReviewTreeItem extends vscode.TreeItem {
+export class ReviewTreeItem extends vscode.TreeItem {
+	/** The code review ID, if this item represents a real review. */
+	reviewId?: number;
+
 	constructor(label: string, description: string, status: ReviewStatus | 'none') {
 		super(label, vscode.TreeItemCollapsibleState.None);
 		this.description = description;

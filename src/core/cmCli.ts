@@ -91,6 +91,7 @@ export async function execCmToFile(args: string[]): Promise<string | undefined> 
 			cwd: workspaceRoot,
 			windowsHide: true,
 			stdio: ['ignore', 'pipe', 'pipe'],
+			env: { ...process.env, ...CM_HEADLESS_ENV },
 		});
 		const out = createWriteStream(tempPath);
 		proc.stdout.pipe(out);
@@ -113,9 +114,32 @@ export async function execCmToFile(args: string[]): Promise<string | undefined> 
 	});
 }
 
+/**
+ * Environment variables that force cm CLI into headless mode.
+ * Without these, commands like `cm diff`, `cm undocheckout`, etc. can
+ * launch Plastic SCM's GUI revision viewer / merge tool, which blocks
+ * the process indefinitely until the window is manually closed.
+ */
+const CM_HEADLESS_ENV: Record<string, string> = {
+	// Suppress the external merge/diff tool launcher
+	PLASTICSCM_MERGETOOL: 'none',
+	PLASTICSCM_DIFFTOOL: 'none',
+	// Disable GUI prompts in general
+	PLASTIC_NO_GUI: '1',
+};
+
 function execCmRaw(binary: string, args: string[], maxBuffer?: number): Promise<CmResult> {
 	return new Promise((resolve, reject) => {
-		const opts: { cwd?: string; windowsHide?: boolean; maxBuffer?: number } = { windowsHide: true };
+		const opts: {
+			cwd?: string;
+			windowsHide?: boolean;
+			maxBuffer?: number;
+			env?: NodeJS.ProcessEnv;
+		} = {
+			windowsHide: true,
+			// Merge headless env vars with the current process environment
+			env: { ...process.env, ...CM_HEADLESS_ENV },
+		};
 		if (workspaceRoot) {
 			opts.cwd = workspaceRoot;
 		}

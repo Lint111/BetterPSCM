@@ -28,6 +28,17 @@ export class AdaptivePoller implements vscode.Disposable {
 		}
 	}
 
+	/** Pause polling temporarily. Call resume() to restart. */
+	pause(): void {
+		this.stop();
+	}
+
+	/** Resume polling after a pause. */
+	resume(): void {
+		if (this.disposed) return;
+		this.scheduleNext();
+	}
+
 	notifyChange(): void {
 		this.lastChangeTime = Date.now();
 		if (this.currentInterval !== this.baseInterval) {
@@ -44,7 +55,8 @@ export class AdaptivePoller implements vscode.Disposable {
 			try {
 				await this.callback();
 			} catch {
-				// Errors handled by callback
+				// Errors are expected to be handled by the callback itself.
+				// Continue polling — transient errors shouldn't stop the poller.
 			}
 			this.adaptInterval();
 			this.scheduleNext();

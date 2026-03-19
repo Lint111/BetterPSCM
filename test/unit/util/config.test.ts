@@ -45,8 +45,8 @@ describe('isConfigured', () => {
 	it('returns true when REST API settings are present', () => {
 		workspace.getConfiguration.mockReturnValue({
 			get: (key: string, def?: unknown) => {
-				if (key === 'plasticScm.serverUrl') return 'https://example.com';
-				if (key === 'plasticScm.organizationName') return 'my-org';
+				if (key === 'bpscm.serverUrl') return 'https://example.com';
+				if (key === 'bpscm.organizationName') return 'my-org';
 				return def;
 			},
 		} as any);

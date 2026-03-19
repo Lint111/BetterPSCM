@@ -4,10 +4,9 @@ import * as fs from 'fs';
 import { log, logError } from './logger';
 
 /**
- * Cloud server endpoints by region.
- * The selector file uses a numeric server ID + "@cloud" suffix.
+ * Fallback cloud server URL if cloudregions.conf is not available.
  */
-const CLOUD_SERVER_URL = 'https://prd-azure-eastus-01-cloud.plasticscm.com:7178';
+const FALLBACK_CLOUD_URL = 'https://prd-azure-eastus-01-cloud.plasticscm.com:7178';
 
 const DEFAULT_LOCAL_URL = 'http://localhost:7178';
 
@@ -26,6 +25,10 @@ export interface PlasticWorkspaceInfo {
 	isCloud: boolean;
 	/** Server URL (resolved from cloud ID or local) */
 	serverUrl: string;
+	/** Numeric cloud server ID (e.g., "20067454181069") */
+	cloudServerId?: string;
+	/** Display name from selector (e.g., "Divine Ambition") — before slug resolution */
+	displayOrgName?: string;
 }
 
 export interface PlasticClientInfo {
@@ -77,17 +80,24 @@ export function detectWorkspace(workspaceRoot: string): PlasticWorkspaceInfo | u
 		}
 
 		const isCloud = selectorInfo.serverSpec.endsWith('@cloud');
-		const serverUrl = isCloud ? CLOUD_SERVER_URL : DEFAULT_LOCAL_URL;
+		let serverUrl = isCloud ? FALLBACK_CLOUD_URL : DEFAULT_LOCAL_URL;
 
 		// For cloud workspaces, resolve the org slug from unityorgs.conf
-		// The API requires the slug (e.g., "head-first-studios-bv"), not the display name
 		let organizationName = selectorInfo.orgName;
+		let cloudServerId: string | undefined;
+		const displayOrgName = selectorInfo.orgName;
 		if (isCloud) {
-			const serverId = selectorInfo.serverSpec.replace(/@cloud$/, '');
-			const slug = resolveOrgSlug(serverId);
+			cloudServerId = selectorInfo.serverSpec.replace(/@cloud$/, '');
+			const slug = resolveOrgSlug(cloudServerId);
 			if (slug) {
-				log(`  Resolved org slug: "${slug}" (from server ID ${serverId})`);
+				log(`  Resolved org slug: "${slug}" (from server ID ${cloudServerId})`);
 				organizationName = slug;
+			}
+			// Resolve actual cloud region URL from cloudregions.conf
+			const regionUrl = resolveCloudRegionUrl(slug ?? cloudServerId);
+			if (regionUrl) {
+				log(`  Resolved cloud region URL: ${regionUrl}`);
+				serverUrl = regionUrl;
 			}
 		}
 
@@ -95,10 +105,12 @@ export function detectWorkspace(workspaceRoot: string): PlasticWorkspaceInfo | u
 			workspaceName,
 			workspaceGuid,
 			organizationName,
-			repositoryName: selectorInfo.repoName,
+			repositoryName: isCloud ? selectorInfo.fullRepoPath : selectorInfo.repoName,
 			currentBranch: selectorInfo.branch,
 			isCloud,
 			serverUrl,
+			cloudServerId,
+			displayOrgName,
 		};
 	} catch (err) {
 		logError('Failed to detect Plastic SCM workspace', err);
@@ -187,6 +199,36 @@ function resolveOrgSlug(serverId: string): string | undefined {
 	}
 }
 
+/**
+ * Resolve the cloud REST API URL from cloudregions.conf.
+ * Format: organization=slug@cloud server=host:port version=N encrypted=T|F webserver=https://host:port
+ */
+function resolveCloudRegionUrl(orgIdentifier: string): string | undefined {
+	const localAppData = process.env.LOCALAPPDATA;
+	if (!localAppData) return undefined;
+
+	const regionsFile = path.join(localAppData, 'plastic4', 'cloudregions.conf');
+	if (!fs.existsSync(regionsFile)) return undefined;
+
+	try {
+		const content = readFileText(regionsFile);
+		for (const line of content.split(/\r?\n/)) {
+			if (line.startsWith('//') || !line.includes('organization=')) continue;
+			const orgMatch = line.match(/organization=(\S+)/);
+			const webMatch = line.match(/webserver=(\S+)/);
+			if (!orgMatch || !webMatch) continue;
+			const orgValue = orgMatch[1]; // e.g., "head-first-studios-bv@cloud"
+			const orgBase = orgValue.replace(/@cloud$/, '');
+			if (orgBase === orgIdentifier) {
+				return webMatch[1];
+			}
+		}
+		return undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 function parseTokenLine(line: string): PlasticCachedToken | undefined {
 	// Format: server=X user=Y token=TOKENJWT seiddata=Z
 	const serverMatch = line.match(/server=(\S+)/);
@@ -212,6 +254,8 @@ export function hasPlasticWorkspace(workspaceRoot: string): boolean {
 interface SelectorInfo {
 	orgName: string;
 	repoName: string;
+	/** Full org/repo path before @ (e.g., "Divine Ambition/DAPrototype") */
+	fullRepoPath: string;
 	serverSpec: string;
 	branch: string;
 }
@@ -241,11 +285,13 @@ function parseSelector(content: string): SelectorInfo | undefined {
 	const orgName = slashIndex >= 0 ? orgRepo.substring(0, slashIndex) : orgRepo;
 	const repoName = slashIndex >= 0 ? orgRepo.substring(slashIndex + 1) : orgRepo;
 
+	const fullRepoPath = orgRepo;
+
 	// Match branch or smartbranch
 	const branchMatch = content.match(/(?:smart)?branch\s+"([^"]+)"/);
 	const branch = branchMatch?.[1] ?? '/main';
 
-	return { orgName, repoName, serverSpec, branch };
+	return { orgName, repoName, fullRepoPath, serverSpec, branch };
 }
 
 function readLines(filePath: string): string[] {

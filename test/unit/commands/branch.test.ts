@@ -5,8 +5,11 @@ vi.mock('../../../src/core/workspace', () => ({
 	listBranches: vi.fn(),
 	createBranch: vi.fn(),
 	deleteBranch: vi.fn(),
-	switchBranch: vi.fn(),
 	getCurrentBranch: vi.fn(),
+}));
+
+vi.mock('../../../src/commands/branchSwitch', () => ({
+	safeSwitchBranch: vi.fn(),
 }));
 
 vi.mock('../../../src/util/logger', () => ({
@@ -14,13 +17,14 @@ vi.mock('../../../src/util/logger', () => ({
 }));
 
 import { registerBranchCommands } from '../../../src/commands/branch';
-import { listBranches, createBranch, deleteBranch, switchBranch, getCurrentBranch } from '../../../src/core/workspace';
+import { listBranches, createBranch, deleteBranch, getCurrentBranch } from '../../../src/core/workspace';
+import { safeSwitchBranch } from '../../../src/commands/branchSwitch';
 import { COMMANDS } from '../../../src/constants';
 
 const mockListBranches = vi.mocked(listBranches);
 const mockCreateBranch = vi.mocked(createBranch);
 const mockDeleteBranch = vi.mocked(deleteBranch);
-const mockSwitchBranch = vi.mocked(switchBranch);
+const mockSafeSwitchBranch = vi.mocked(safeSwitchBranch);
 const mockGetCurrentBranch = vi.mocked(getCurrentBranch);
 
 describe('branch commands', () => {
@@ -60,10 +64,11 @@ describe('branch commands', () => {
 			]);
 			mockGetCurrentBranch.mockResolvedValue('/main');
 			window.showQuickPick.mockResolvedValue({ label: '/main/feature' });
+			mockSafeSwitchBranch.mockResolvedValue('switched');
 
 			await registeredHandlers[COMMANDS.switchBranch]();
 
-			expect(mockSwitchBranch).toHaveBeenCalledWith('/main/feature');
+			expect(mockSafeSwitchBranch).toHaveBeenCalledWith('/main/feature', mockProvider);
 			expect(mockProvider.refresh).toHaveBeenCalled();
 		});
 
@@ -88,7 +93,7 @@ describe('branch commands', () => {
 			window.showQuickPick.mockResolvedValue(undefined);
 
 			await registeredHandlers[COMMANDS.switchBranch]();
-			expect(mockSwitchBranch).not.toHaveBeenCalled();
+			expect(mockSafeSwitchBranch).not.toHaveBeenCalled();
 		});
 	});
 

@@ -1,11 +1,13 @@
 import * as vscode from 'vscode';
 import { COMMANDS } from '../constants';
 import { createCodeReview, listBranches, getCurrentBranch, getReviewComments, resolveRevisionPaths, getCodeReview } from '../core/workspace';
+import { safeSwitchBranch, type PollingController } from './branchSwitch';
 import { resolveComments } from '../core/reviewResolver';
 import { CodeReviewPanel } from '../views/codeReviewPanel';
 import { ReviewSnippetPanel } from '../views/reviewSnippetPanel';
-import { logError } from '../util/logger';
-import type { CodeReviewsTreeProvider } from '../views/codeReviewsTreeProvider';
+import { exportReviewAudit } from './reviewAuditExport';
+import { log, logError } from '../util/logger';
+import type { CodeReviewsTreeProvider, ReviewTreeItem } from '../views/codeReviewsTreeProvider';
 import type { ReviewCommentsTreeProvider } from '../views/reviewCommentsTreeProvider';
 import type { ReviewNavigationController } from '../providers/reviewNavigationController';
 import type { ReviewDecorationProvider } from '../providers/reviewDecorationProvider';
@@ -17,6 +19,7 @@ export function registerCodeReviewCommands(
 	commentsTree: ReviewCommentsTreeProvider,
 	navController: ReviewNavigationController,
 	decorationProvider: ReviewDecorationProvider,
+	poller?: PollingController,
 ): void {
 	async function navigateToComment(comment: ResolvedComment | undefined): Promise<void> {
 		if (!comment) return;
@@ -73,19 +76,42 @@ export function registerCodeReviewCommands(
 			}
 		}),
 
-		vscode.commands.registerCommand(COMMANDS.openCodeReview, (reviewId: number) => {
+		vscode.commands.registerCommand(COMMANDS.openCodeReview, (arg: ReviewTreeItem | number) => {
+			const reviewId = typeof arg === 'number' ? arg : (arg as ReviewTreeItem)?.reviewId;
+			if (!reviewId) {
+				vscode.window.showErrorMessage('Could not determine review ID.');
+				return;
+			}
 			CodeReviewPanel.open(reviewId, context.extensionUri);
 		}),
 
-		vscode.commands.registerCommand(COMMANDS.inspectReviewComments, async (commentOrReviewId: ResolvedComment | number) => {
-			if (typeof commentOrReviewId === 'object' && 'filePath' in commentOrReviewId) {
-				navController.goTo(commentOrReviewId);
-				await navigateToComment(commentOrReviewId);
+		vscode.commands.registerCommand(COMMANDS.inspectReviewComments, async (arg: ResolvedComment | ReviewTreeItem | number) => {
+			if (typeof arg === 'object' && 'filePath' in arg) {
+				navController.goTo(arg as ResolvedComment);
+				await navigateToComment(arg as ResolvedComment);
 				return;
 			}
 
-			const reviewId = commentOrReviewId as number;
+			// Extract review ID: from number, or from TreeItem (context menu passes the TreeItem)
+			const reviewId = typeof arg === 'number' ? arg
+				: (arg as ReviewTreeItem)?.reviewId;
+			if (!reviewId) {
+				vscode.window.showErrorMessage('Could not determine review ID.');
+				return;
+			}
 			try {
+				// Check if the review targets a different branch than current
+				const review = await getCodeReview(reviewId);
+				const reviewBranch = review.targetType === 'Branch' ? review.targetSpec : undefined;
+				const currentBranch = await getCurrentBranch();
+
+				if (reviewBranch && currentBranch && reviewBranch !== currentBranch) {
+					log(`[inspectReview] branch mismatch: review targets "${reviewBranch}", current is "${currentBranch}"`);
+
+					const result = await safeSwitchBranch(reviewBranch, poller);
+					if (result !== 'switched') return;
+				}
+
 				await vscode.window.withProgress(
 					{ location: vscode.ProgressLocation.Notification, title: 'Loading review comments...' },
 					async () => {
@@ -94,7 +120,7 @@ export function registerCodeReviewCommands(
 						commentsTree.setComments(resolved, `Review #${reviewId}`, reviewId);
 						navController.setComments(resolved);
 						decorationProvider.setComments(resolved);
-						vscode.commands.executeCommand('setContext', 'plasticScm.reviewActive', true);
+						vscode.commands.executeCommand('setContext', 'bpscm.reviewActive', true);
 
 						if (resolved.length > 0) {
 							await navigateToComment(resolved[0]);
@@ -105,7 +131,11 @@ export function registerCodeReviewCommands(
 				);
 			} catch (err) {
 				logError('Failed to inspect review comments', err);
-				vscode.window.showErrorMessage(`Failed to load comments: ${err instanceof Error ? err.message : String(err)}`);
+				if (err instanceof Error && err.name === 'NotSupportedError') {
+					vscode.window.showWarningMessage('Review comments require the REST API backend. Sign in via "BetterPSCM: Sign In" to use this feature.');
+				} else {
+					vscode.window.showErrorMessage(`Failed to load comments: ${err instanceof Error ? err.message : String(err)}`);
+				}
 			}
 		}),
 
@@ -125,9 +155,6 @@ export function registerCodeReviewCommands(
 				return;
 			}
 			try {
-				// Dynamic import — module created in Task 7 (reviewAuditExport)
-				// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-				const { exportReviewAudit } = await (import('./reviewAuditExport.js' as string) as Promise<any>);
 				const review = await getCodeReview(reviewId);
 				await exportReviewAudit(review, [...resolved]);
 			} catch (err) {

@@ -34,7 +34,7 @@ const LANE_COLORS = [
  * WebviewViewProvider — renders in the sidebar panel under the Plastic SCM activity bar.
  */
 export class HistoryGraphViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
-	static readonly viewId = 'plasticScm.historyGraphView';
+	static readonly viewId = 'bpscm.historyGraphView';
 	private view?: vscode.WebviewView;
 	private disposables: vscode.Disposable[] = [];
 	private currentFilter?: string;
@@ -743,7 +743,7 @@ window.addEventListener('message', event => {
 
 		if (msg.error) {
 			title.textContent = 'Changeset #' + msg.changesetId + ' (error)';
-			list.innerHTML = '<div class="empty">' + msg.error + '</div>';
+			list.innerHTML = '<div class="empty">' + escHtml(msg.error) + '</div>';
 			return;
 		}
 

@@ -144,6 +144,8 @@ export interface ResolvedComment {
 	timestamp: string;
 	filePath: string;
 	lineNumber: number;
+	/** Revision ID for fetching content when file doesn't exist locally */
+	revisionId?: number;
 }
 
 export interface CreateReviewParams {
