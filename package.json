@@ -8,11 +8,11 @@
   "icon": "media/icon.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/betterpscm/betterpscm"
+    "url": "https://github.com/Lint111/BetterPSCM"
   },
-  "homepage": "https://github.com/betterpscm/betterpscm#readme",
+  "homepage": "https://github.com/Lint111/BetterPSCM#readme",
   "bugs": {
-    "url": "https://github.com/betterpscm/betterpscm/issues"
+    "url": "https://github.com/Lint111/BetterPSCM/issues"
   },
   "keywords": [
     "plastic scm",
