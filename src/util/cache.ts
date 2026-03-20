@@ -74,6 +74,15 @@ export class TtlCache<K, V> {
 
 	set(key: K, value: V): void {
 		this.map.set(key, { value, expiresAt: Date.now() + this.ttlMs });
+		if (this.map.size > 50) this.prune();
+	}
+
+	/** Remove all expired entries. */
+	prune(): void {
+		const now = Date.now();
+		for (const [k, v] of this.map) {
+			if (now > v.expiresAt) this.map.delete(k);
+		}
 	}
 
 	/**

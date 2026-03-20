@@ -150,4 +150,34 @@ describe('TtlCache', () => {
 		// Internal map should have cleaned up on access
 		expect(cache.size).toBe(0);
 	});
+
+	it('prunes expired entries when size exceeds 50', () => {
+		const cache = new TtlCache<number, string>(10); // 10ms TTL
+		for (let i = 0; i < 51; i++) {
+			cache.set(i, `val-${i}`);
+		}
+		expect(cache.size).toBe(51);
+
+		vi.advanceTimersByTime(15);
+		cache.set(999, 'trigger');
+
+		expect(cache.size).toBe(1);
+		expect(cache.get(999)).toBe('trigger');
+	});
+
+	it('prune() removes only expired entries', () => {
+		const cache = new TtlCache<string, number>(100);
+		cache.set('a', 1);
+		cache.set('b', 2);
+
+		vi.advanceTimersByTime(50);
+		cache.set('c', 3);
+
+		vi.advanceTimersByTime(60); // a,b expired (110ms), c still valid (60ms)
+		cache.prune();
+
+		expect(cache.size).toBe(1);
+		expect(cache.get('c')).toBe(3);
+		expect(cache.get('a')).toBeUndefined();
+	});
 });
