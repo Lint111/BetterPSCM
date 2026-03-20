@@ -14,6 +14,7 @@ export class CodeReviewPanel implements vscode.Disposable {
 	private readonly panel: vscode.WebviewPanel;
 	private reviewId: number;
 	private disposables: vscode.Disposable[] = [];
+	private _disposed = false;
 
 	static open(reviewId: number, extensionUri: vscode.Uri): void {
 		const existing = CodeReviewPanel.panels.get(reviewId);
@@ -286,6 +287,8 @@ ${coreStyles}
 	}
 
 	dispose(): void {
+		if (this._disposed) return;
+		this._disposed = true;
 		this.disposables.forEach(d => d.dispose());
 		this.panel.dispose();
 	}

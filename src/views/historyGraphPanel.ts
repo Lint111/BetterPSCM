@@ -822,6 +822,8 @@ body { align-items:center; justify-content:center; }
 	dispose(): void {
 		for (const d of this.disposables) d.dispose();
 		this.disposables = [];
+		this.diffCache.clear();
+		this.graphCache.clear();
 	}
 }
 
