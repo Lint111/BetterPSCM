@@ -80,9 +80,21 @@ export class PlasticService {
 		const status = await this.backend.getStatus(true);
 		const changeMap = new Map(status.changes.map(c => [c.path, c.changeType]));
 
-		// Resolve paths
+		let paths = this._resolvePaths(status, { all, excludePaths });
+		const autoAdded = autoAddPrivate ? await this._autoAddPrivate(paths, changeMap) : [];
+		const { filtered, autoExcluded } = this._filterCommittable(paths, changeMap, autoAdded);
+		const result = await this._checkinWithRetry(filtered, comment, autoExcluded);
+
+		this.store.clear();
+		return { ...result, autoExcluded, autoAdded };
+	}
+
+	private _resolvePaths(
+		status: StatusResult,
+		options: { all?: boolean; excludePaths?: string[] },
+	): string[] {
 		let paths: string[];
-		if (all) {
+		if (options.all) {
 			paths = status.changes.filter(c => c.dataType !== 'Directory').map(c => c.path);
 		} else if (this.store.getAll().size > 0) {
 			paths = [...this.store.getAll()];
@@ -90,40 +102,49 @@ export class PlasticService {
 			throw new Error('No files staged. Use stage first, or set all=true.');
 		}
 
-		// Exclusions
-		if (excludePaths && excludePaths.length > 0) {
-			const excludeSet = new Set(excludePaths.map(p => p.replace(/\\/g, '/')));
+		if (options.excludePaths && options.excludePaths.length > 0) {
+			const excludeSet = new Set(options.excludePaths.map(p => p.replace(/\\/g, '/')));
 			paths = paths.filter(p => !excludeSet.has(p.replace(/\\/g, '/')));
 		}
 
-		// Auto-add private files
-		const autoAdded: string[] = [];
-		if (autoAddPrivate) {
-			const privatePaths = paths.filter(p => {
-				const ct = changeMap.get(p) || changeMap.get(p.replace(/\\/g, '/'));
-				return ct === 'private';
-			});
-			if (privatePaths.length > 0) {
-				// Expand .meta companions for private files
-				const metaToAdd: string[] = [];
-				for (const filePath of privatePaths) {
-					const metaPath = filePath + '.meta';
-					const normalizedMeta = metaPath.replace(/\\/g, '/');
-					const metaChange = changeMap.get(metaPath) || changeMap.get(normalizedMeta);
-					if (metaChange === 'private' && !paths.includes(metaPath) && !paths.includes(normalizedMeta)) {
-						metaToAdd.push(changeMap.has(metaPath) ? metaPath : normalizedMeta);
-					}
-				}
-				paths.push(...metaToAdd);
-				const allToAdd = [...privatePaths, ...metaToAdd];
-				await this.backend.addToSourceControl(allToAdd);
-				autoAdded.push(...allToAdd);
-			}
-		}
+		return paths;
+	}
 
-		// Safety filter: only keep committable changes
+	private async _autoAddPrivate(
+		paths: string[],
+		changeMap: Map<string, string>,
+	): Promise<string[]> {
+		const autoAdded: string[] = [];
+		const privatePaths = paths.filter(p => {
+			const ct = changeMap.get(p) || changeMap.get(p.replace(/\\/g, '/'));
+			return ct === 'private';
+		});
+		if (privatePaths.length > 0) {
+			const metaToAdd: string[] = [];
+			for (const filePath of privatePaths) {
+				const metaPath = filePath + '.meta';
+				const normalizedMeta = metaPath.replace(/\\/g, '/');
+				const metaChange = changeMap.get(metaPath) || changeMap.get(normalizedMeta);
+				if (metaChange === 'private' && !paths.includes(metaPath) && !paths.includes(normalizedMeta)) {
+					metaToAdd.push(changeMap.has(metaPath) ? metaPath : normalizedMeta);
+				}
+			}
+			// Mutate paths array so downstream steps see expanded list
+			paths.push(...metaToAdd);
+			const allToAdd = [...privatePaths, ...metaToAdd];
+			await this.backend.addToSourceControl(allToAdd);
+			autoAdded.push(...allToAdd);
+		}
+		return autoAdded;
+	}
+
+	private _filterCommittable(
+		paths: string[],
+		changeMap: Map<string, string>,
+		autoAdded: string[],
+	): { filtered: string[]; autoExcluded: string[] } {
 		const autoExcluded: string[] = [];
-		paths = paths.filter(p => {
+		const filtered = paths.filter(p => {
 			if (autoAdded.includes(p)) return true;
 			const ct = changeMap.get(p) || changeMap.get(p.replace(/\\/g, '/'));
 			if (!ct || !isCommittableChange(ct)) {
@@ -133,7 +154,7 @@ export class PlasticService {
 			return true;
 		});
 
-		if (paths.length === 0) {
+		if (filtered.length === 0) {
 			throw new Error(
 				'No files with real changes to check in. ' +
 				(autoExcluded.length > 0
@@ -142,35 +163,39 @@ export class PlasticService {
 			);
 		}
 
-		// Retry loop for "not changed" rejections
+		return { filtered, autoExcluded };
+	}
+
+	private async _checkinWithRetry(
+		paths: string[],
+		comment: string,
+		autoExcluded: string[],
+	): Promise<CheckinResult> {
 		const MAX_RETRIES = 5;
-		let result: CheckinResult | undefined;
+		let remaining = paths;
 		for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
 			try {
-				result = await this.backend.checkin(paths, comment);
-				break;
+				return await this.backend.checkin(remaining, comment);
 			} catch (err) {
 				const msg = err instanceof Error ? err.message : String(err);
 				const match = msg.match(/The item '([^']+)' is not changed/i);
 				if (match && attempt < MAX_RETRIES) {
 					const rejected = match[1];
-					const filtered = paths.filter(p => {
+					const filtered = remaining.filter(p => {
 						const norm = p.replace(/\\/g, '/');
 						return p !== rejected && norm !== rejected
 							&& !p.endsWith(rejected) && !norm.endsWith(rejected);
 					});
-					// Record the rejection regardless of whether it was in our paths list
 					autoExcluded.push(rejected);
 					if (filtered.length === 0) throw err;
-					paths = filtered;
+					remaining = filtered;
 					continue;
 				}
 				throw err;
 			}
 		}
-
-		this.store.clear();
-		return { ...result!, autoExcluded, autoAdded };
+		// Unreachable — loop always returns or throws
+		throw new Error('Checkin retry loop exhausted');
 	}
 
 	// ── Add to source control ───────────────────────────────────────
