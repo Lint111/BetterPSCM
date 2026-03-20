@@ -1,5 +1,6 @@
 import { execFile, spawn } from 'child_process';
 import { createWriteStream } from 'fs';
+import { unlink } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { log, logError } from '../util/logger';
@@ -9,6 +10,16 @@ const CM_PATH_UNIX = 'cm';
 
 let cmPath: string | undefined;
 let workspaceRoot: string | undefined;
+
+const _activeChildren = new Set<import('child_process').ChildProcess>();
+
+/** Kill all active cm child processes. Used during branch switch cancellation. */
+export function killActiveChildren(): void {
+	for (const child of _activeChildren) {
+		try { child.kill('SIGTERM'); } catch { /* already exited */ }
+	}
+	_activeChildren.clear();
+}
 
 /**
  * Set the workspace root for cm commands.
@@ -103,12 +114,14 @@ export async function execCmToFile(args: string[]): Promise<string | undefined> 
 				resolve(tempPath);
 			} else {
 				log(`[execCmToFile] failed (exit ${code}): ${stderr}`);
+				unlink(tempPath).catch(() => {});
 				resolve(undefined);
 			}
 		});
 		proc.on('error', (err) => {
 			out.end();
 			log(`[execCmToFile] spawn error: ${err.message}`);
+			unlink(tempPath).catch(() => {});
 			resolve(undefined);
 		});
 	});
@@ -146,7 +159,12 @@ function execCmRaw(binary: string, args: string[], maxBuffer?: number): Promise<
 		if (maxBuffer) {
 			opts.maxBuffer = maxBuffer;
 		}
-		execFile(binary, args, opts, (err, stdout, stderr) => {
+		const child = execFile(binary, args, opts, (err, stdout, stderr) => {
+			_activeChildren.delete(child);
+			if (err && (err as any).killed || (err as any).signal === 'SIGTERM') {
+				resolve({ stdout: stdout ?? '', stderr: stderr ?? '', exitCode: 1 });
+				return;
+			}
 			if (err && !('code' in err)) {
 				reject(err);
 				return;
@@ -157,5 +175,6 @@ function execCmRaw(binary: string, args: string[], maxBuffer?: number): Promise<
 				exitCode: (err as any)?.code ?? 0,
 			});
 		});
+		_activeChildren.add(child);
 	});
 }
