@@ -36,4 +36,12 @@ export class InMemoryStagingStore implements StagingStore {
 	has(path: string): boolean {
 		return this.paths.has(path);
 	}
+
+	/** No-op — standalone MCP server has no change listeners. */
+	onDidChange(_listener: () => void): { dispose: () => void } {
+		return { dispose: () => {} };
+	}
+
+	/** No-op — in-memory store has no persistence. */
+	persist(): void {}
 }
