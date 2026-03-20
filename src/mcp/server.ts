@@ -99,6 +99,23 @@ function audit(tool: string, action: string, details?: Record<string, unknown>) 
 	process.stderr.write(`[AUDIT] ${JSON.stringify(entry)}\n`);
 }
 
+// ── Mutex for write operations ──────────────────────────────────────
+// Prevents concurrent MCP tool calls from racing on workspace state.
+
+let _mcpLock: Promise<void> = Promise.resolve();
+
+async function withMcpLock<T>(fn: () => Promise<T>): Promise<T> {
+	const prev = _mcpLock;
+	let releaseFn: () => void;
+	_mcpLock = new Promise<void>(resolve => { releaseFn = resolve; });
+	await prev;
+	try {
+		return await fn();
+	} finally {
+		releaseFn!();
+	}
+}
+
 // ── Tools ────────────────────────────────────────────────────────────
 
 // 1. bpscm_status — List pending workspace changes
@@ -143,35 +160,37 @@ server.registerTool(
 		}),
 	},
 	async ({ paths }) => {
-		try {
-			// Keep directory-prefix resolution in MCP layer (stage handler has this extra UX)
-			const status = await backend().getStatus(true);
-			const pendingPaths = status.changes.map(c => c.path);
-			const resolved: string[] = [];
+		return withMcpLock(async () => {
+			try {
+				// Keep directory-prefix resolution in MCP layer (stage handler has this extra UX)
+				const status = await backend().getStatus(true);
+				const pendingPaths = status.changes.map(c => c.path);
+				const resolved: string[] = [];
 
-			for (const p of paths) {
-				const normalized = p.replace(/\\/g, '/').replace(/\/$/, '');
-				if (pendingPaths.includes(normalized) || pendingPaths.includes(p)) {
-					resolved.push(pendingPaths.includes(normalized) ? normalized : p);
-					continue;
-				}
-				const prefix = normalized.endsWith('/') ? normalized : normalized + '/';
-				let matchedAny = false;
-				for (const pending of pendingPaths) {
-					const normalizedPending = pending.replace(/\\/g, '/');
-					if (normalizedPending.startsWith(prefix) || normalizedPending.toLowerCase().startsWith(prefix.toLowerCase())) {
-						resolved.push(pending);
-						matchedAny = true;
+				for (const p of paths) {
+					const normalized = p.replace(/\\/g, '/').replace(/\/$/, '');
+					if (pendingPaths.includes(normalized) || pendingPaths.includes(p)) {
+						resolved.push(pendingPaths.includes(normalized) ? normalized : p);
+						continue;
 					}
+					const prefix = normalized.endsWith('/') ? normalized : normalized + '/';
+					let matchedAny = false;
+					for (const pending of pendingPaths) {
+						const normalizedPending = pending.replace(/\\/g, '/');
+						if (normalizedPending.startsWith(prefix) || normalizedPending.toLowerCase().startsWith(prefix.toLowerCase())) {
+							resolved.push(pending);
+							matchedAny = true;
+						}
+					}
+					if (!matchedAny) resolved.push(p);
 				}
-				if (!matchedAny) resolved.push(p);
-			}
 
-			await getService().stage(resolved, { autoMeta: false });
-			return textResult(`Staged ${resolved.length} file(s). Total staged: ${getService().getStagedPaths().length}`);
-		} catch (err) {
-			return errorResult(err instanceof Error ? err.message : String(err));
-		}
+				await getService().stage(resolved, { autoMeta: false });
+				return textResult(`Staged ${resolved.length} file(s). Total staged: ${getService().getStagedPaths().length}`);
+			} catch (err) {
+				return errorResult(err instanceof Error ? err.message : String(err));
+			}
+		});
 	},
 );
 
@@ -186,8 +205,10 @@ server.registerTool(
 		}),
 	},
 	async ({ paths }) => {
-		await getService().unstage(paths);
-		return textResult(`Unstaged ${paths.length} file(s). Total staged: ${getService().getStagedPaths().length}`);
+		return withMcpLock(async () => {
+			await getService().unstage(paths);
+			return textResult(`Unstaged ${paths.length} file(s). Total staged: ${getService().getStagedPaths().length}`);
+		});
 	},
 );
 
@@ -210,38 +231,40 @@ SMART HANDLING:
 		}),
 	},
 	async ({ comment, all, exclude_paths, auto_add_private }) => {
-		try {
-			audit('bpscm_checkin', 'invoked', { all, excludeCount: exclude_paths?.length ?? 0, auto_add_private });
-			const result = await getService().checkin({
-				comment,
-				all,
-				excludePaths: exclude_paths,
-				autoAddPrivate: auto_add_private,
-			});
+		return withMcpLock(async () => {
+			try {
+				audit('bpscm_checkin', 'invoked', { all, excludeCount: exclude_paths?.length ?? 0, auto_add_private });
+				const result = await getService().checkin({
+					comment,
+					all,
+					excludePaths: exclude_paths,
+					autoAddPrivate: auto_add_private,
+				});
 
-			audit('bpscm_checkin', 'completed', {
-				changesetId: result.changesetId,
-				autoAdded: result.autoAdded.length,
-				autoExcluded: result.autoExcluded.length,
-			});
+				audit('bpscm_checkin', 'completed', {
+					changesetId: result.changesetId,
+					autoAdded: result.autoAdded.length,
+					autoExcluded: result.autoExcluded.length,
+				});
 
-			const response: Record<string, unknown> = {
-				changesetId: result.changesetId,
-				branch: result.branchName,
-			};
-			if (result.autoAdded.length > 0) {
-				response.autoAddedToSourceControl = result.autoAdded;
-				response.autoAddNote = `${result.autoAdded.length} private file(s) were automatically added to source control before checkin.`;
+				const response: Record<string, unknown> = {
+					changesetId: result.changesetId,
+					branch: result.branchName,
+				};
+				if (result.autoAdded.length > 0) {
+					response.autoAddedToSourceControl = result.autoAdded;
+					response.autoAddNote = `${result.autoAdded.length} private file(s) were automatically added to source control before checkin.`;
+				}
+				if (result.autoExcluded.length > 0) {
+					response.autoExcludedStale = result.autoExcluded;
+					response.note = `${result.autoExcluded.length} unchanged item(s) were auto-excluded. Use bpscm_clean_stale to clear stale checkouts.`;
+				}
+				return jsonResult(response);
+			} catch (err) {
+				audit('bpscm_checkin', 'error', { error: err instanceof Error ? err.message : String(err) });
+				return errorResult(err instanceof Error ? err.message : String(err));
 			}
-			if (result.autoExcluded.length > 0) {
-				response.autoExcludedStale = result.autoExcluded;
-				response.note = `${result.autoExcluded.length} unchanged item(s) were auto-excluded. Use bpscm_clean_stale to clear stale checkouts.`;
-			}
-			return jsonResult(response);
-		} catch (err) {
-			audit('bpscm_checkin', 'error', { error: err instanceof Error ? err.message : String(err) });
-			return errorResult(err instanceof Error ? err.message : String(err));
-		}
+		});
 	},
 );
 
@@ -338,12 +361,14 @@ server.registerTool(
 		}),
 	},
 	async ({ branchName }) => {
-		try {
-			await backend().switchBranch(branchName);
-			return textResult(`Switched to branch "${branchName}"`);
-		} catch (err) {
-			return errorResult(err instanceof Error ? err.message : String(err));
-		}
+		return withMcpLock(async () => {
+			try {
+				await backend().switchBranch(branchName);
+				return textResult(`Switched to branch "${branchName}"`);
+			} catch (err) {
+				return errorResult(err instanceof Error ? err.message : String(err));
+			}
+		});
 	},
 );
 
@@ -404,16 +429,18 @@ server.registerTool(
 		}),
 	},
 	async ({ sourceBranch, targetBranch, comment, preview }) => {
-		try {
-			if (preview) {
-				const report = await backend().checkMergeAllowed(sourceBranch, targetBranch);
-				return jsonResult(report);
+		return withMcpLock(async () => {
+			try {
+				if (preview) {
+					const report = await backend().checkMergeAllowed(sourceBranch, targetBranch);
+					return jsonResult(report);
+				}
+				const result = await backend().executeMerge(sourceBranch, targetBranch, comment);
+				return jsonResult(result);
+			} catch (err) {
+				return errorResult(err instanceof Error ? err.message : String(err));
 			}
-			const result = await backend().executeMerge(sourceBranch, targetBranch, comment);
-			return jsonResult(result);
-		} catch (err) {
-			return errorResult(err instanceof Error ? err.message : String(err));
-		}
+		});
 	},
 );
 
@@ -506,25 +533,27 @@ Supports exact file paths and directory prefixes (e.g. "Assets/Scripts/AbilityCh
 		}),
 	},
 	async ({ paths, auto_add_meta }) => {
-		try {
-			audit('bpscm_add', 'invoked', { pathCount: paths.length, auto_add_meta });
-			const added = await getService().addToSourceControl(paths, { autoMeta: auto_add_meta !== false });
-			if (added.length === 0) {
-				return errorResult(
-					'No private (PR) files matched the given paths. ' +
-					'Files must be PR (untracked) to be added. Use bpscm_status to see current file states.',
-				);
+		return withMcpLock(async () => {
+			try {
+				audit('bpscm_add', 'invoked', { pathCount: paths.length, auto_add_meta });
+				const added = await getService().addToSourceControl(paths, { autoMeta: auto_add_meta !== false });
+				if (added.length === 0) {
+					return errorResult(
+						'No private (PR) files matched the given paths. ' +
+						'Files must be PR (untracked) to be added. Use bpscm_status to see current file states.',
+					);
+				}
+				audit('bpscm_add', 'completed', { addedCount: added.length });
+				return jsonResult({
+					addedFiles: added.length,
+					paths: added,
+					message: `Added ${added.length} file(s) to source control. They are now AD (added) and can be checked in.`,
+				});
+			} catch (err) {
+				audit('bpscm_add', 'error', { error: err instanceof Error ? err.message : String(err) });
+				return errorResult(err instanceof Error ? err.message : String(err));
 			}
-			audit('bpscm_add', 'completed', { addedCount: added.length });
-			return jsonResult({
-				addedFiles: added.length,
-				paths: added,
-				message: `Added ${added.length} file(s) to source control. They are now AD (added) and can be checked in.`,
-			});
-		} catch (err) {
-			audit('bpscm_add', 'error', { error: err instanceof Error ? err.message : String(err) });
-			return errorResult(err instanceof Error ? err.message : String(err));
-		}
+		});
 	},
 );
 
@@ -553,11 +582,12 @@ To simply un-stage files without discarding changes, use bpscm_unstage.`,
 		}),
 	},
 	async ({ paths, confirm_bulk }) => {
-		try {
-			audit('bpscm_undo_checkout', 'invoked', { pathCount: paths.length, confirm_bulk });
+		return withMcpLock(async () => {
+			try {
+				audit('bpscm_undo_checkout', 'invoked', { pathCount: paths.length, confirm_bulk });
 
-			// Guard 1: Bulk operation threshold
-			if (paths.length > BULK_OPERATION_THRESHOLD && !confirm_bulk) {
+				// Guard 1: Bulk operation threshold
+				if (paths.length > BULK_OPERATION_THRESHOLD && !confirm_bulk) {
 				audit('bpscm_undo_checkout', 'blocked_bulk', { pathCount: paths.length });
 				return errorResult(
 					`Refusing to undo checkout on ${paths.length} files (threshold: ${BULK_OPERATION_THRESHOLD}). ` +
@@ -694,6 +724,7 @@ To simply un-stage files without discarding changes, use bpscm_unstage.`,
 			audit('bpscm_undo_checkout', 'error', { error: err instanceof Error ? err.message : String(err) });
 			return errorResult(err instanceof Error ? err.message : String(err));
 		}
+		});
 	},
 );
 
@@ -717,9 +748,10 @@ Run this before checkin to avoid commit failures from unchanged files.`,
 		}),
 	},
 	async ({ dry_run, confirm_bulk }) => {
-		try {
-			// Default to dry_run=true for safety
-			const isDryRun = dry_run !== false;
+		return withMcpLock(async () => {
+			try {
+				// Default to dry_run=true for safety
+				const isDryRun = dry_run !== false;
 
 			audit('bpscm_clean_stale', 'invoked', { dry_run: isDryRun, confirm_bulk });
 
@@ -818,6 +850,7 @@ Run this before checkin to avoid commit failures from unchanged files.`,
 			audit('bpscm_clean_stale', 'error', { error: err instanceof Error ? err.message : String(err) });
 			return errorResult(err instanceof Error ? err.message : String(err));
 		}
+		});
 	},
 );
 
@@ -845,9 +878,10 @@ ACTIONS:
 		}),
 	},
 	async ({ action, backup_id, paths }) => {
-		try {
-			const wsRoot = getCmWorkspaceRoot() || '.';
-			const wsName = (await backend().getCurrentBranch()) || 'unknown-workspace';
+		return withMcpLock(async () => {
+			try {
+				const wsRoot = getCmWorkspaceRoot() || '.';
+				const wsName = (await backend().getCurrentBranch()) || 'unknown-workspace';
 
 			if (action === 'list') {
 				const backups = await listBackups(wsName, process.env.PLASTIC_BACKUP_DIR);
@@ -890,6 +924,7 @@ ACTIONS:
 		} catch (err) {
 			return errorResult(err instanceof Error ? err.message : String(err));
 		}
+		});
 	},
 );
 
