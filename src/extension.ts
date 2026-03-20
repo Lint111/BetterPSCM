@@ -43,9 +43,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// Register auth commands (always available, even before config)
 	registerAuthCommands(context);
 
-	// Register stub commands for features not yet implemented (prevents "command not found")
-	registerStubCommands(context);
-
 	// Initialize detection-first config from .plastic folder
 	const wsFolder = vscode.workspace.workspaceFolders?.[0];
 	if (wsFolder) {
@@ -400,24 +397,6 @@ async function tryAutoLoginFromDesktopClient(): Promise<boolean> {
 	} catch (err) {
 		logError('Auto-login with cached token failed', err);
 		return false;
-	}
-}
-
-/**
- * Register stub commands for features planned in later phases.
- * Prevents "command not found" errors when users click menu items.
- */
-function registerStubCommands(context: vscode.ExtensionContext): void {
-	const stubCommands: string[] = [
-		// All Phase 5 commands now implemented
-	];
-
-	for (const cmd of stubCommands) {
-		context.subscriptions.push(
-			vscode.commands.registerCommand(cmd, () => {
-				vscode.window.showInformationMessage(`"${cmd}" will be available in a future update.`);
-			}),
-		);
 	}
 }
 
