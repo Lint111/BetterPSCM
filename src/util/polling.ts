@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { logError } from './logger';
 
 export class AdaptivePoller implements vscode.Disposable {
 	private timer: ReturnType<typeof setInterval> | undefined;
@@ -54,9 +55,8 @@ export class AdaptivePoller implements vscode.Disposable {
 			if (this.disposed) return;
 			try {
 				await this.callback();
-			} catch {
-				// Errors are expected to be handled by the callback itself.
-				// Continue polling — transient errors shouldn't stop the poller.
+			} catch (err) {
+				logError('Poller callback error', err);
 			}
 			this.adaptInterval();
 			this.scheduleNext();

@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AdaptivePoller } from '../../../src/util/polling';
+import { logError } from '../../../src/util/logger';
+
+vi.mock('../../../src/util/logger', () => ({
+	log: vi.fn(),
+	logError: vi.fn(),
+}));
 
 describe('AdaptivePoller', () => {
 	beforeEach(() => {
@@ -118,6 +124,19 @@ describe('AdaptivePoller', () => {
 		// Should continue polling after error
 		await vi.advanceTimersByTimeAsync(500);
 		expect(callback).toHaveBeenCalledTimes(2);
+
+		poller.dispose();
+	});
+
+	it('logs callback errors via logError', async () => {
+		const error = new Error('poll failure');
+		const callback = vi.fn().mockRejectedValue(error);
+		const poller = new AdaptivePoller(callback, 500);
+
+		poller.start();
+		await vi.advanceTimersByTimeAsync(500);
+
+		expect(logError).toHaveBeenCalledWith('Poller callback error', error);
 
 		poller.dispose();
 	});
