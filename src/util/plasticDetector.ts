@@ -179,7 +179,11 @@ export function detectCachedToken(serverSpec?: string): PlasticCachedToken | und
  * Resolve an org slug from unityorgs.conf using the server ID.
  * Format: serverId:slug (e.g., "20067454181069:head-first-studios-bv")
  */
+const _orgSlugCache = new Map<string, string>();
+
 function resolveOrgSlug(serverId: string): string | undefined {
+	if (_orgSlugCache.has(serverId)) return _orgSlugCache.get(serverId);
+
 	const localAppData = process.env.LOCALAPPDATA;
 	if (!localAppData) return undefined;
 
@@ -191,7 +195,11 @@ function resolveOrgSlug(serverId: string): string | undefined {
 		for (const line of content.split(/\r?\n/)) {
 			if (line.startsWith('//') || !line.includes(':')) continue;
 			const [id, slug] = line.split(':');
-			if (id.trim() === serverId) return slug.trim();
+			if (id.trim() === serverId) {
+				const result = slug.trim();
+				_orgSlugCache.set(serverId, result);
+				return result;
+			}
 		}
 		return undefined;
 	} catch {
@@ -203,7 +211,11 @@ function resolveOrgSlug(serverId: string): string | undefined {
  * Resolve the cloud REST API URL from cloudregions.conf.
  * Format: organization=slug@cloud server=host:port version=N encrypted=T|F webserver=https://host:port
  */
+const _regionUrlCache = new Map<string, string>();
+
 function resolveCloudRegionUrl(orgIdentifier: string): string | undefined {
+	if (_regionUrlCache.has(orgIdentifier)) return _regionUrlCache.get(orgIdentifier);
+
 	const localAppData = process.env.LOCALAPPDATA;
 	if (!localAppData) return undefined;
 
@@ -220,7 +232,9 @@ function resolveCloudRegionUrl(orgIdentifier: string): string | undefined {
 			const orgValue = orgMatch[1]; // e.g., "head-first-studios-bv@cloud"
 			const orgBase = orgValue.replace(/@cloud$/, '');
 			if (orgBase === orgIdentifier) {
-				return webMatch[1];
+				const result = webMatch[1];
+				_regionUrlCache.set(orgIdentifier, result);
+				return result;
 			}
 		}
 		return undefined;
