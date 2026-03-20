@@ -43,6 +43,7 @@ export class PlasticScmProvider implements vscode.Disposable {
 	private workspaceRoot: vscode.Uri;
 	private errorPromptShown = false;
 	private consecutiveErrors = 0;
+	private _polling: Promise<void> | null = null;
 	private currentBranch: string | undefined;
 
 	private readonly onDidChangeStatusEmitter = new vscode.EventEmitter<void>();
@@ -178,6 +179,16 @@ export class PlasticScmProvider implements vscode.Disposable {
 	}
 
 	private async pollStatus(): Promise<void> {
+		if (this._polling) return this._polling;
+		this._polling = this._doPollStatus();
+		try {
+			await this._polling;
+		} finally {
+			this._polling = null;
+		}
+	}
+
+	private async _doPollStatus(): Promise<void> {
 		try {
 			const config = getConfig();
 			const result = await fetchWorkspaceStatus(config.showPrivateFiles);
