@@ -206,8 +206,12 @@ server.registerTool(
 	},
 	async ({ paths }) => {
 		return withMcpLock(async () => {
-			await getService().unstage(paths);
-			return textResult(`Unstaged ${paths.length} file(s). Total staged: ${getService().getStagedPaths().length}`);
+			try {
+				await getService().unstage(paths);
+				return textResult(`Unstaged ${paths.length} file(s). Total staged: ${getService().getStagedPaths().length}`);
+			} catch (err) {
+				return errorResult(err instanceof Error ? err.message : String(err));
+			}
 		});
 	},
 );
@@ -954,7 +958,8 @@ server.registerResource(
 					text: JSON.stringify({ branch, changes, stagedCount: getService().getStagedPaths().length }, null, 2),
 				}],
 			};
-		} catch {
+		} catch (err) {
+			process.stderr.write(`[resource:workspace-status] ${err instanceof Error ? err.message : String(err)}\n`);
 			return { contents: [{ uri: uri.href, text: '{"error": "Failed to get status"}' }] };
 		}
 	},
@@ -973,7 +978,8 @@ server.registerResource(
 		try {
 			const branch = await backend().getCurrentBranch();
 			return { contents: [{ uri: uri.href, text: branch ?? 'unknown' }] };
-		} catch {
+		} catch (err) {
+			process.stderr.write(`[resource:workspace-branch] ${err instanceof Error ? err.message : String(err)}\n`);
 			return { contents: [{ uri: uri.href, text: 'unknown' }] };
 		}
 	},
