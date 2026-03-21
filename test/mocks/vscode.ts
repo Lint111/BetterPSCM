@@ -94,6 +94,7 @@ export class TreeItem {
 export const StatusBarAlignment = { Left: 1, Right: 2 } as const;
 export const ProgressLocation = { SourceControl: 1, Notification: 15, Window: 10 } as const;
 export const ConfigurationTarget = { Global: 1, Workspace: 2, WorkspaceFolder: 3 } as const;
+export const OverviewRulerLane = { Left: 1, Center: 2, Right: 4, Full: 7 } as const;
 
 // --- Memento (for StagingManager) ---
 
@@ -115,6 +116,7 @@ export const window = {
 	showInputBox: vi.fn(),
 	showQuickPick: vi.fn(),
 	registerTreeDataProvider: vi.fn(),
+	registerWebviewViewProvider: vi.fn(),
 	withProgress: vi.fn(async (_opts: any, task: any) => task({ report: vi.fn() })),
 	createOutputChannel: vi.fn(() => ({
 		appendLine: vi.fn(),
@@ -127,6 +129,10 @@ export const window = {
 		command: undefined as string | undefined,
 		show: vi.fn(),
 		hide: vi.fn(),
+		dispose: vi.fn(),
+	})),
+	createTextEditorDecorationType: vi.fn(() => ({
+		key: 'mock-decoration',
 		dispose: vi.fn(),
 	})),
 };

@@ -361,7 +361,8 @@ async function validateCredentials(): Promise<boolean> {
  * Try to automatically sign in using the Unity SSO token cached by the Plastic desktop client.
  * Returns true if auto-login succeeded.
  */
-async function tryAutoLoginFromDesktopClient(): Promise<boolean> {
+/** Exported for testing — not part of public API. */
+export async function tryAutoLoginFromDesktopClient(): Promise<boolean> {
 	const cachedToken = detectCachedToken();
 	if (!cachedToken) {
 		log('No cached Unity SSO token found from desktop client');
