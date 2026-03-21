@@ -135,10 +135,6 @@ export async function createCodeReview(params: CreateReviewParams): Promise<Code
 	return getBackend().createCodeReview(params);
 }
 
-export async function deleteCodeReview(id: number): Promise<void> {
-	return getBackend().deleteCodeReview(id);
-}
-
 export async function updateCodeReviewStatus(id: number, status: ReviewStatus): Promise<void> {
 	return getBackend().updateCodeReviewStatus(id, status);
 }
@@ -169,16 +165,8 @@ export async function updateReviewerStatus(reviewId: number, reviewer: string, s
 
 // ── Phase 5: Labels, History, Merges ───────────────────────────────
 
-export async function listLabels(): Promise<LabelInfo[]> {
-	return getBackend().listLabels();
-}
-
 export async function createLabel(params: CreateLabelParams): Promise<LabelInfo> {
 	return getBackend().createLabel(params);
-}
-
-export async function deleteLabel(id: number): Promise<void> {
-	return getBackend().deleteLabel(id);
 }
 
 export async function getFileHistory(path: string): Promise<FileHistoryEntry[]> {

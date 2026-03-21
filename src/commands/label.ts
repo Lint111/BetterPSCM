@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { listLabels, createLabel, deleteLabel } from '../core/workspace';
+import { createLabel } from '../core/workspace';
 import { COMMANDS } from '../constants';
 import { logError } from '../util/logger';
 
