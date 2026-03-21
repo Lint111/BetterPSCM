@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { getBackend } from '../core/backend';
 import { log, logError } from '../util/logger';
 import type { CodeReviewInfo, ResolvedComment } from '../core/types';
+import { formatShortDate } from '../util/date';
 
 export function generateAuditMarkdown(
 	review: CodeReviewInfo,
@@ -32,7 +33,7 @@ export function generateAuditMarkdown(
 
 		for (const comment of fileComments) {
 			lines.push('');
-			lines.push(`### Line ${comment.lineNumber} — ${comment.type} by ${comment.owner}${comment.timestamp ? ` (${formatDate(comment.timestamp)})` : ''}`);
+			lines.push(`### Line ${comment.lineNumber} — ${comment.type} by ${comment.owner}${comment.timestamp ? ` (${formatShortDate(comment.timestamp)})` : ''}`);
 			lines.push('');
 
 			const startLine = Math.max(1, comment.lineNumber - contextLines);
@@ -63,15 +64,6 @@ export function generateAuditMarkdown(
 	return lines.join('\n');
 }
 
-function formatDate(iso: string): string {
-	if (!iso) return '';
-	try {
-		const d = new Date(iso);
-		return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-	} catch {
-		return iso;
-	}
-}
 
 export async function exportReviewAudit(
 	review: CodeReviewInfo,

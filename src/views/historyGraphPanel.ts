@@ -8,6 +8,7 @@ import { coreStyles, errorStyles } from './webviewStyles';
 import { escapeHtml } from '../util/html';
 import type { ChangesetInfo, ChangesetDiffItem } from '../core/types';
 import { formatRelativeDate } from '../util/date';
+import { normalizePath } from '../util/path';
 
 /**
  * Graph layout node — a changeset with lane position and connection info.
