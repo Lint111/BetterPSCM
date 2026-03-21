@@ -202,7 +202,8 @@ function resolveOrgSlug(serverId: string): string | undefined {
 			}
 		}
 		return undefined;
-	} catch {
+	} catch (err) {
+		log(`[resolveOrgSlug] failed to resolve org slug for server "${serverId}": ${err instanceof Error ? err.message : String(err)}`);
 		return undefined;
 	}
 }
@@ -238,7 +239,8 @@ function resolveCloudRegionUrl(orgIdentifier: string): string | undefined {
 			}
 		}
 		return undefined;
-	} catch {
+	} catch (err) {
+		log(`[resolveCloudRegionUrl] failed to resolve region URL for "${orgIdentifier}": ${err instanceof Error ? err.message : String(err)}`);
 		return undefined;
 	}
 }
