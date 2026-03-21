@@ -1,6 +1,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
+import { UNITY_CRITICAL_EXTENSIONS } from '../core/safety';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -35,9 +36,7 @@ export interface CreateBackupOptions {
 
 // ── Constants ──────────────────────────────────────────────────────────
 
-const UNITY_CRITICAL_EXTENSIONS = new Set([
-    '.meta', '.unity', '.prefab', '.asset', '.asmdef', '.asmref',
-]);
+const UNITY_CRITICAL_SET = new Set(UNITY_CRITICAL_EXTENSIONS);
 
 const SANITIZE_RE = /[<>:"/\\|?* ]/g;
 
@@ -64,7 +63,7 @@ function formatTimestamp(date: Date): string {
 }
 
 function isUnityCritical(filePath: string): boolean {
-    return UNITY_CRITICAL_EXTENSIONS.has(path.extname(filePath).toLowerCase());
+    return UNITY_CRITICAL_SET.has(path.extname(filePath).toLowerCase());
 }
 
 function extractGuid(content: Buffer): string | null {
