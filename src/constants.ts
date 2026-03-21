@@ -43,6 +43,20 @@ export const COMMANDS = {
 	releaseLocks: 'bpscm.releaseLocks',
 } as const;
 
+// ── Timeout and cache constants ─────────────────────────────────────
+
+/** TTL for cached branch data (20 seconds). */
+export const BRANCH_CACHE_TTL_MS = 20_000;
+
+/** TTL for history graph caches (30 seconds). */
+export const GRAPH_CACHE_TTL_MS = 30_000;
+
+/** Timeout for auto-login attempt (10 seconds). */
+export const AUTO_LOGIN_TIMEOUT_MS = 10_000;
+
+/** Milliseconds in one day. */
+export const MS_PER_DAY = 86_400_000;
+
 export const SETTINGS = {
 	serverUrl: 'bpscm.serverUrl',
 	organizationName: 'bpscm.organizationName',

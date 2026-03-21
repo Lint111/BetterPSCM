@@ -1,5 +1,6 @@
 import { getBackend } from './backend';
 import { TtlCache } from '../util/cache';
+import { BRANCH_CACHE_TTL_MS } from '../constants';
 import type {
 	StatusResult, CheckinResult, BranchInfo, ChangesetInfo, ChangesetDiffItem,
 	UpdateResult, CodeReviewInfo, ReviewCommentInfo, ReviewerInfo,
@@ -13,8 +14,8 @@ import type {
 export type { StatusResult as WorkspaceStatusResult } from './types';
 
 /** Short-lived cache for data that changes occasionally */
-const branchCache = new TtlCache<string, string | undefined>(20_000);	// 20s
-const branchListCache = new TtlCache<string, BranchInfo[]>(20_000);		// 20s
+const branchCache = new TtlCache<string, string | undefined>(BRANCH_CACHE_TTL_MS);
+const branchListCache = new TtlCache<string, BranchInfo[]>(BRANCH_CACHE_TTL_MS);
 
 /**
  * Fetch the current workspace status (pending changes).

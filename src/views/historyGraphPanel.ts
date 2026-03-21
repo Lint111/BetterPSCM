@@ -6,6 +6,7 @@ import { LruCache, TtlCache } from '../util/cache';
 import { getWorkspaceGuid } from '../api/client';
 import { coreStyles, errorStyles } from './webviewStyles';
 import { escapeHtml } from '../util/html';
+import { GRAPH_CACHE_TTL_MS } from '../constants';
 import type { ChangesetInfo, ChangesetDiffItem } from '../core/types';
 import { formatRelativeDate } from '../util/date';
 import { normalizePath } from '../util/path';
@@ -44,7 +45,7 @@ export class HistoryGraphViewProvider implements vscode.WebviewViewProvider, vsc
 	/** Cache changeset diff results — changeset content is immutable */
 	private readonly diffCache = new LruCache<number, { parentId: number; files: ChangesetDiffItem[] }>(100);
 	/** Cache graph data keyed by filter ('' = all, branch name = filtered) */
-	private readonly graphCache = new TtlCache<string, { changesets: ChangesetInfo[]; currentBranch?: string }>(30_000);
+	private readonly graphCache = new TtlCache<string, { changesets: ChangesetInfo[]; currentBranch?: string }>(GRAPH_CACHE_TTL_MS);
 
 	constructor(private readonly extensionUri: vscode.Uri) {}
 

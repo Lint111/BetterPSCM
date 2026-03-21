@@ -4,6 +4,7 @@ import { getClient, getOrgName, getOrgNameVariants, setResolvedOrgName, setOrgNa
 import { isConfigured, getConfig, initDetectedConfig } from './util/config';
 import { log, logError } from './util/logger';
 import { DisposableStore } from './util/disposable';
+import { AUTO_LOGIN_TIMEOUT_MS } from './constants';
 import { PlasticScmProvider } from './scm/plasticScmProvider';
 import { PlasticStatusBar } from './statusBar/plasticStatusBar';
 import { registerStagingCommands } from './commands/staging';
@@ -339,9 +340,9 @@ async function validateCredentials(): Promise<boolean> {
 				'/api/v1/organizations/{orgName}/repos/{repoName}/codereviews' as any,
 				{ params: { path: { orgName, repoName }, query: { filter: 'All' } } },
 			);
-			// Race against a 10s timeout — we just need to know if creds work
+			// Race against a timeout — we just need to know if creds work
 			const timeout = new Promise<never>((_, reject) =>
-				setTimeout(() => reject(new Error('Validation timed out (10s)')), 10_000),
+				setTimeout(() => reject(new Error(`Validation timed out (${AUTO_LOGIN_TIMEOUT_MS / 1000}s)`)), AUTO_LOGIN_TIMEOUT_MS),
 			);
 			await Promise.race([apiCall, timeout]);
 			setResolvedOrgName(orgName);
