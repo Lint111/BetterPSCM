@@ -5,7 +5,9 @@ import {
 	updateCodeReviewStatus, updateReviewerStatus, addReviewers, removeReviewer,
 } from '../core/workspace';
 import { log, logError } from '../util/logger';
+import { escapeHtml } from '../util/html';
 import type { CodeReviewInfo, ReviewCommentInfo, ReviewStatus } from '../core/types';
+import { formatDateTime } from '../util/date';
 
 export class CodeReviewPanel implements vscode.Disposable {
 	static readonly viewType = 'bpscm.codeReviewPanel';
@@ -117,14 +119,14 @@ export class CodeReviewPanel implements vscode.Disposable {
 		const reviewersHtml = review.reviewers.length > 0
 			? review.reviewers.map(r => `
 				<div class="reviewer-row">
-					<span class="reviewer-name">${esc(r.name)}</span>
-					<span class="reviewer-status" style="color:${statusColor[r.status]}">${esc(r.status)}</span>
-					<select class="reviewer-status-select" data-reviewer="${esc(r.name)}">
+					<span class="reviewer-name">${escapeHtml(r.name)}</span>
+					<span class="reviewer-status" style="color:${statusColor[r.status]}">${escapeHtml(r.status)}</span>
+					<select class="reviewer-status-select" data-reviewer="${escapeHtml(r.name)}">
 						<option value="Under review" ${r.status === 'Under review' ? 'selected' : ''}>Under review</option>
 						<option value="Reviewed" ${r.status === 'Reviewed' ? 'selected' : ''}>Reviewed</option>
 						<option value="Rework required" ${r.status === 'Rework required' ? 'selected' : ''}>Rework required</option>
 					</select>
-					<button class="remove-reviewer-btn" data-reviewer="${esc(r.name)}" title="Remove reviewer">x</button>
+					<button class="remove-reviewer-btn" data-reviewer="${escapeHtml(r.name)}" title="Remove reviewer">x</button>
 				</div>
 			`).join('')
 			: '<div class="text-muted">No reviewers assigned</div>';
@@ -133,12 +135,12 @@ export class CodeReviewPanel implements vscode.Disposable {
 			? comments.map(c => `
 				<div class="comment ${c.type === 'Question' ? 'question' : ''}">
 					<div class="comment-header">
-						<span class="comment-author">${esc(c.owner)}</span>
-						<span class="comment-type text-muted">${esc(c.type)}</span>
-						<span class="comment-time text-muted">${formatDate(c.timestamp)}</span>
+						<span class="comment-author">${escapeHtml(c.owner)}</span>
+						<span class="comment-type text-muted">${escapeHtml(c.type)}</span>
+						<span class="comment-time text-muted">${formatDateTime(c.timestamp)}</span>
 					</div>
-					${c.itemName ? `<div class="comment-location text-muted text-mono">${esc(c.itemName)}${c.locationSpec ? ' @ ' + esc(c.locationSpec) : ''}</div>` : ''}
-					<div class="comment-body">${esc(c.text)}</div>
+					${c.itemName ? `<div class="comment-location text-muted text-mono">${escapeHtml(c.itemName)}${c.locationSpec ? ' @ ' + escapeHtml(c.locationSpec) : ''}</div>` : ''}
+					<div class="comment-body">${escapeHtml(c.text)}</div>
 					<button class="reply-btn" data-comment-id="${c.id}">Reply</button>
 				</div>
 			`).join('')
@@ -178,19 +180,19 @@ ${coreStyles}
 </head>
 <body style="overflow-y:auto;">
 	<div class="review-header">
-		<div class="review-title">${esc(review.title)}</div>
+		<div class="review-title">${escapeHtml(review.title)}</div>
 		<div class="review-meta">
 			<span>
 				<span class="review-status" style="background:${statusColor[review.status]}33; color:${statusColor[review.status]}">
-					${esc(review.status)}
+					${escapeHtml(review.status)}
 				</span>
 			</span>
-			<span>Owner: ${esc(review.owner)}</span>
-			<span>Target: ${esc(review.targetType)} ${esc(review.targetSpec ?? '')}</span>
+			<span>Owner: ${escapeHtml(review.owner)}</span>
+			<span>Target: ${escapeHtml(review.targetType)} ${escapeHtml(review.targetSpec ?? '')}</span>
 			<span>${review.commentsCount} comment(s)</span>
-			<span>Created: ${formatDate(review.created)}</span>
+			<span>Created: ${formatDateTime(review.created)}</span>
 		</div>
-		${review.description ? `<div style="margin-top:8px;white-space:pre-wrap">${esc(review.description)}</div>` : ''}
+		${review.description ? `<div style="margin-top:8px;white-space:pre-wrap">${escapeHtml(review.description)}</div>` : ''}
 	</div>
 
 	<div class="toolbar">
@@ -281,7 +283,7 @@ ${coreStyles}
 	private buildErrorHtml(err: unknown): string {
 		const msg = err instanceof Error ? err.message : String(err);
 		return `<!DOCTYPE html><html><head><style>${errorStyles}</style></head><body>
-			<div class="err"><h3>Failed to load review</h3><pre>${esc(msg)}</pre>
+			<div class="err"><h3>Failed to load review</h3><pre>${escapeHtml(msg)}</pre>
 			<button onclick="location.reload()">Retry</button></div>
 		</body></html>`;
 	}
@@ -294,17 +296,3 @@ ${coreStyles}
 	}
 }
 
-function esc(s: string): string {
-	return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
-function formatDate(iso: string): string {
-	if (!iso) return '';
-	try {
-		const d = new Date(iso);
-		return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
-			+ ' ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-	} catch {
-		return iso;
-	}
-}

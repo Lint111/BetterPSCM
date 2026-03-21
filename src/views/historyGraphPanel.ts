@@ -5,7 +5,9 @@ import { buildPlasticUri } from '../util/uri';
 import { LruCache, TtlCache } from '../util/cache';
 import { getWorkspaceGuid } from '../api/client';
 import { coreStyles, errorStyles } from './webviewStyles';
+import { escapeHtml } from '../util/html';
 import type { ChangesetInfo, ChangesetDiffItem } from '../core/types';
+import { formatRelativeDate } from '../util/date';
 
 /**
  * Graph layout node — a changeset with lane position and connection info.
@@ -568,8 +570,8 @@ export class HistoryGraphViewProvider implements vscode.WebviewViewProvider, vsc
 			const cs = node.changeset;
 			const short = this.shortBranch(cs.branch);
 			const isCurrent = cs.branch === currentBranch;
-			const dateStr = this.formatDate(cs.date);
-			const comment = esc(cs.comment ?? '(no comment)');
+			const dateStr = formatRelativeDate(cs.date);
+			const comment = escapeHtml(cs.comment ?? '(no comment)');
 			const trunc = comment.length > 60 ? comment.substring(0, 57) + '...' : comment;
 
 			return `<div class="row" data-cs="${cs.id}" data-parent="${cs.parent}" style="height:${rowHeight}px" title="${comment}">
@@ -577,9 +579,9 @@ export class HistoryGraphViewProvider implements vscode.WebviewViewProvider, vsc
 	<div class="info-col">
 		<span class="comment truncate">${trunc}</span>
 		<span class="meta text-muted">
-			<span class="badge" style="color:${node.color};border-color:${node.color}40;background:${node.color}15">${esc(short)}${isCurrent ? ' ●' : ''}</span>
+			<span class="badge" style="color:${node.color};border-color:${node.color}40;background:${node.color}15">${escapeHtml(short)}${isCurrent ? ' ●' : ''}</span>
 			<span class="cs-id text-mono">#${cs.id}</span>
-			<span class="owner truncate">${esc(cs.owner)}</span>
+			<span class="owner truncate">${escapeHtml(cs.owner)}</span>
 			<span class="date">${dateStr}</span>
 		</span>
 	</div>
@@ -794,7 +796,7 @@ function escHtml(s) {
 ${errorStyles}
 body { align-items:center; justify-content:center; }
 </style></head><body>
-<div class="err"><h3>Failed to load history</h3><pre>${esc(message)}</pre>
+<div class="err"><h3>Failed to load history</h3><pre>${escapeHtml(message)}</pre>
 <button onclick="const v=acquireVsCodeApi();v.postMessage({command:'refresh'})">Retry</button></div>
 </body></html>`;
 	}
@@ -804,20 +806,6 @@ body { align-items:center; justify-content:center; }
 		return parts.length > 2 ? parts.slice(-2).join('/') : parts[parts.length - 1];
 	}
 
-	private formatDate(dateStr: string): string {
-		if (!dateStr) return '';
-		try {
-			const d = new Date(dateStr);
-			const now = new Date();
-			const diffMs = now.getTime() - d.getTime();
-			const diffDays = Math.floor(diffMs / 86400000);
-			if (diffDays === 0) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-			if (diffDays < 7) return `${diffDays}d ago`;
-			return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
-		} catch {
-			return dateStr;
-		}
-	}
 
 	dispose(): void {
 		for (const d of this.disposables) d.dispose();
@@ -825,8 +813,4 @@ body { align-items:center; justify-content:center; }
 		this.diffCache.clear();
 		this.graphCache.clear();
 	}
-}
-
-function esc(s: string): string {
-	return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }

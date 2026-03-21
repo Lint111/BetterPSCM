@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { coreStyles } from './webviewStyles';
+import { escapeHtml } from '../util/html';
 import { log, logError } from '../util/logger';
 import { getBackend } from '../core/backend';
 import type { ResolvedComment } from '../core/types';
@@ -118,7 +119,7 @@ export class ReviewSnippetPanel implements vscode.Disposable {
 		const linesHtml = lines.map((line, i) => {
 			const lineNum = startLine + i;
 			const isTarget = lineNum === targetLine;
-			return `<div class="code-line ${isTarget ? 'target-line' : ''}"><span class="line-num">${lineNum}</span><span class="line-text">${esc(line)}</span></div>`;
+			return `<div class="code-line ${isTarget ? 'target-line' : ''}"><span class="line-num">${lineNum}</span><span class="line-text">${escapeHtml(line)}</span></div>`;
 		}).join('');
 
 		return `<!DOCTYPE html>
@@ -142,14 +143,14 @@ ${coreStyles}
 </head>
 <body>
 	<div class="snippet-header">
-		<div class="file-path">${esc(comment.filePath)}</div>
+		<div class="file-path">${escapeHtml(comment.filePath)}</div>
 	</div>
 	<div class="code-block">
 		${linesHtml}
 	</div>
 	<div class="comment-section">
-		<div class="comment-meta">${esc(comment.owner)} · ${esc(comment.type)} · line ${comment.lineNumber}</div>
-		<div class="comment-text">${esc(comment.text)}</div>
+		<div class="comment-meta">${escapeHtml(comment.owner)} · ${escapeHtml(comment.type)} · line ${comment.lineNumber}</div>
+		<div class="comment-text">${escapeHtml(comment.text)}</div>
 	</div>
 	<div class="actions">
 		${contextLines < 30 ? `<button class="btn" id="showMoreBtn">Show More Context (±${contextLines * 2})</button>` : ''}
@@ -175,16 +176,12 @@ ${coreStyles}
 		const msg = err instanceof Error ? err.message : String(err);
 		return `<!DOCTYPE html><html><head><style>${coreStyles}</style></head><body>
 			<div style="padding:16px"><h3>Failed to load snippet</h3>
-			<p>${esc(comment.filePath)}:${comment.lineNumber}</p>
-			<pre>${esc(msg)}</pre></div></body></html>`;
+			<p>${escapeHtml(comment.filePath)}:${comment.lineNumber}</p>
+			<pre>${escapeHtml(msg)}</pre></div></body></html>`;
 	}
 
 	dispose(): void {
 		this.disposables.forEach(d => d.dispose());
 		this.panel.dispose();
 	}
-}
-
-function esc(s: string): string {
-	return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
