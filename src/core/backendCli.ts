@@ -690,19 +690,40 @@ export class CliBackend implements PlasticBackend {
 	}
 }
 
+/**
+ * Parses the stdout of `cm diff` into structured diff items.
+ *
+ * The `cm` CLI produces different output formats depending on the flags used,
+ * the Plastic SCM version, and the platform (Windows vs Unix path separators).
+ * This function handles 6 known formats, tried in priority order so that more
+ * specific patterns match before more general ones.
+ *
+ * Formats handled (in match order):
+ *  1. Machine-readable full-word status: `Added /path/to/file`
+ *  2. Tab-separated status+path (either column order): `A\t/path` or `/path\tA`
+ *  3a. Single-char move with two quoted paths: `M "old" "new"`
+ *  3b. Single-char status with a quoted path: `C "path"`
+ *  3c. Single-char status with an unquoted path: `A path`
+ *  4. Bare absolute path (no status prefix, defaults to "changed")
+ */
 function parseDiffOutput(stdout: string): ChangesetDiffItem[] {
 	const lines = stdout.split(/\r?\n/).filter(l => l.length > 0);
 	const items: ChangesetDiffItem[] = [];
 	for (const line of lines) {
-		// Format 1: cm diff --machinereadable: "<type> <path>"
-		// Types: Added, Changed, Deleted, Moved
+		// Format 1 — Machine-readable full-word prefix.
+		// Produced by `cm diff --machinereadable` on modern Plastic SCM versions.
+		// Matches lines like: "Added /src/foo.ts", "Deleted /old/bar.cs"
 		const match1 = line.match(/^(Added|Changed|Deleted|Moved)\s+(.+)$/i);
 		if (match1) {
 			items.push({ path: match1[2].trim(), type: classifyDiffType(match1[1]) });
 			continue;
 		}
 
-		// Format 2: tab-separated "path\tstatus" or "status\tpath"
+		// Format 2 — Tab-separated columns.
+		// Some cm versions or custom format strings produce "status\tpath" or "path\tstatus".
+		// We detect which column holds the status by checking if it matches a known type token
+		// (A/C/D/M or the full word). If neither column is a recognizable status, we fall
+		// through and treat the first column as the path with a default type of "changed".
 		if (line.includes('\t')) {
 			const parts = line.split('\t');
 			if (parts.length >= 2) {
@@ -720,16 +741,20 @@ function parseDiffOutput(stdout: string): ChangesetDiffItem[] {
 			}
 		}
 
-		// Format 3a: Move with two quoted paths: M "old\path" "new\path"
+		// Format 3a — Move operation with two quoted paths.
+		// Produced when `cm diff` reports a file rename/move on Windows.
+		// Example: M "src\old\file.cs" "src\new\file.cs"
+		// We extract the destination (second) path and normalize backslashes.
 		const matchMove = line.match(/^([M])\s+"([^"]+)"\s+"([^"]+)"\s*$/);
 		if (matchMove) {
-			// Use the destination (new) path for display
 			const newPath = matchMove[3].trim().replace(/\\/g, '/');
 			items.push({ path: newPath, type: 'moved' });
 			continue;
 		}
 
-		// Format 3b: single-character prefix with optional quotes: C "path" or A path
+		// Format 3b — Single-char status prefix with a quoted path.
+		// Common on Windows where paths containing spaces are quoted.
+		// Example: C "src\some path\file.cs"
 		const match3 = line.match(/^([ACDM])\s+"([^"]+)"\s*$/);
 		if (match3) {
 			const path = match3[2].trim().replace(/\\/g, '/');
@@ -737,7 +762,9 @@ function parseDiffOutput(stdout: string): ChangesetDiffItem[] {
 			continue;
 		}
 
-		// Format 3c: single-character prefix without quotes
+		// Format 3c — Single-char status prefix with an unquoted path.
+		// Typical compact format on Unix or Windows paths without spaces.
+		// Example: A src/newFile.ts
 		const match3c = line.match(/^([ACDM])\s+(.+?)\s*$/);
 		if (match3c) {
 			const path = match3c[2].trim().replace(/\\/g, '/');
@@ -745,7 +772,9 @@ function parseDiffOutput(stdout: string): ChangesetDiffItem[] {
 			continue;
 		}
 
-		// Format 4: just a path (assume changed)
+		// Format 4 — Bare absolute path with no status indicator.
+		// Fallback for output that only lists affected paths (Unix absolute or Windows drive letter).
+		// Defaults to "changed" since no status information is available.
 		if (line.startsWith('/') || line.match(/^[a-zA-Z]:\\/)) {
 			items.push({ path: line.trim(), type: 'changed' });
 		}
