@@ -1,9 +1,19 @@
+/**
+ * Workspace facade — thin wrapper over getBackend().
+ *
+ * Some functions add real value (caching or cache-invalidation):
+ *   getCurrentBranch, listBranches, checkinFiles, createBranch, deleteBranch,
+ *   switchBranch, updateWorkspace, executeMerge.
+ *
+ * The remaining functions are pure pass-throughs kept for API stability.
+ * Callers may import getBackend() from './backend' directly if preferred.
+ */
 import { getBackend } from './backend';
 import { TtlCache } from '../util/cache';
 import { BRANCH_CACHE_TTL_MS } from '../constants';
 import type {
 	StatusResult, CheckinResult, BranchInfo, ChangesetInfo, ChangesetDiffItem,
-	UpdateResult, CodeReviewInfo, ReviewCommentInfo, ReviewerInfo,
+	UpdateResult, CodeReviewInfo, ReviewCommentInfo,
 	CreateReviewParams, CreateCommentParams, ReviewStatus,
 	LabelInfo, CreateLabelParams, FileHistoryEntry, BlameLine,
 	MergeReport, MergeResult,
@@ -148,10 +158,6 @@ export async function addReviewComment(params: CreateCommentParams): Promise<Rev
 	return getBackend().addReviewComment(params);
 }
 
-export async function getReviewers(reviewId: number): Promise<ReviewerInfo[]> {
-	return getBackend().getReviewers(reviewId);
-}
-
 export async function addReviewers(reviewId: number, reviewers: string[]): Promise<void> {
 	return getBackend().addReviewers(reviewId, reviewers);
 }
@@ -201,10 +207,6 @@ export async function createLockRule(rule: LockRuleInfo): Promise<LockRuleInfo> 
 
 export async function deleteLockRules(): Promise<void> {
 	return getBackend().deleteLockRules();
-}
-
-export async function deleteLockRulesForRepo(): Promise<void> {
-	return getBackend().deleteLockRulesForRepo();
 }
 
 export async function releaseLocks(itemIds: number[], mode: 'Delete' | 'Release'): Promise<void> {
