@@ -207,7 +207,7 @@ export class HistoryGraphViewProvider implements vscode.WebviewViewProvider, vsc
 			const wsGuid = getWorkspaceGuid();
 
 			// Build plastic: URIs using the serverpath#cs:N format that cm cat understands
-			const normalizedPath = path.replace(/\\/g, '/');
+			const normalizedPath = normalizePath(path);
 			const serverPath = normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`;
 
 			const oldRevSpec = `serverpath:${serverPath}#cs:${parentId}`;

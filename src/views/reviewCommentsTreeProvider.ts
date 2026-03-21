@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { ResolvedComment } from '../core/types';
+import { normalizePath } from '../util/path';
 
 type TreeElement = FileGroupItem | CommentItem;
 
@@ -68,7 +69,7 @@ class FileGroupItem extends vscode.TreeItem {
 		public readonly filePath: string,
 		public readonly comments: ResolvedComment[],
 	) {
-		const fileName = filePath.replace(/\\/g, '/').split('/').pop() ?? filePath;
+		const fileName = normalizePath(filePath).split('/').pop() ?? filePath;
 		super(fileName, vscode.TreeItemCollapsibleState.Expanded);
 		this.description = `${comments.length} comment(s)`;
 		this.tooltip = filePath;

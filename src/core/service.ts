@@ -2,6 +2,7 @@ import type { PlasticBackend } from './backend';
 import type { StagingStore } from './stagingStore';
 import type { StatusResult, CheckinResult } from './types';
 import { expandMetaCompanions, isCommittableChange } from './safety';
+import { normalizePath } from '../util/path';
 
 export interface StageOptions {
 	autoMeta?: boolean;
@@ -103,8 +104,8 @@ export class PlasticService {
 		}
 
 		if (options.excludePaths && options.excludePaths.length > 0) {
-			const excludeSet = new Set(options.excludePaths.map(p => p.replace(/\\/g, '/')));
-			paths = paths.filter(p => !excludeSet.has(p.replace(/\\/g, '/')));
+			const excludeSet = new Set(options.excludePaths.map(p => normalizePath(p)));
+			paths = paths.filter(p => !excludeSet.has(normalizePath(p)));
 		}
 
 		return paths;
@@ -116,14 +117,14 @@ export class PlasticService {
 	): Promise<string[]> {
 		const autoAdded: string[] = [];
 		const privatePaths = paths.filter(p => {
-			const ct = changeMap.get(p) || changeMap.get(p.replace(/\\/g, '/'));
+			const ct = changeMap.get(p) || changeMap.get(normalizePath(p));
 			return ct === 'private';
 		});
 		if (privatePaths.length > 0) {
 			const metaToAdd: string[] = [];
 			for (const filePath of privatePaths) {
 				const metaPath = filePath + '.meta';
-				const normalizedMeta = metaPath.replace(/\\/g, '/');
+				const normalizedMeta = normalizePath(metaPath);
 				const metaChange = changeMap.get(metaPath) || changeMap.get(normalizedMeta);
 				if (metaChange === 'private' && !paths.includes(metaPath) && !paths.includes(normalizedMeta)) {
 					metaToAdd.push(changeMap.has(metaPath) ? metaPath : normalizedMeta);
@@ -146,7 +147,7 @@ export class PlasticService {
 		const autoExcluded: string[] = [];
 		const filtered = paths.filter(p => {
 			if (autoAdded.includes(p)) return true;
-			const ct = changeMap.get(p) || changeMap.get(p.replace(/\\/g, '/'));
+			const ct = changeMap.get(p) || changeMap.get(normalizePath(p));
 			if (!ct || !isCommittableChange(ct)) {
 				autoExcluded.push(p);
 				return false;
@@ -182,7 +183,7 @@ export class PlasticService {
 				if (match && attempt < MAX_RETRIES) {
 					const rejected = match[1];
 					const filtered = remaining.filter(p => {
-						const norm = p.replace(/\\/g, '/');
+						const norm = normalizePath(p);
 						return p !== rejected && norm !== rejected
 							&& !p.endsWith(rejected) && !norm.endsWith(rejected);
 					});
@@ -212,11 +213,11 @@ export class PlasticService {
 		const toAdd = new Set<string>();
 
 		for (const p of paths) {
-			const normalized = p.replace(/\\/g, '/').replace(/\/$/, '');
+			const normalized = normalizePath(p).replace(/\/$/, '');
 
 			// Exact match
 			const exact = privateFiles.find(f =>
-				f === normalized || f === p || f.replace(/\\/g, '/') === normalized,
+				f === normalized || f === p || normalizePath(f) === normalized,
 			);
 			if (exact) {
 				toAdd.add(exact);
@@ -227,7 +228,7 @@ export class PlasticService {
 			const prefix = normalized.endsWith('/') ? normalized : normalized + '/';
 			let matched = false;
 			for (const priv of privateFiles) {
-				const normPriv = priv.replace(/\\/g, '/');
+				const normPriv = normalizePath(priv);
 				if (normPriv.startsWith(prefix) || normPriv.toLowerCase().startsWith(prefix.toLowerCase())) {
 					toAdd.add(priv);
 					matched = true;
@@ -242,9 +243,9 @@ export class PlasticService {
 			const metaToAdd: string[] = [];
 			for (const filePath of toAdd) {
 				const metaPath = filePath + '.meta';
-				const normalizedMeta = metaPath.replace(/\\/g, '/');
+				const normalizedMeta = normalizePath(metaPath);
 				const metaExists = privateFiles.find(f =>
-					f === metaPath || f.replace(/\\/g, '/') === normalizedMeta,
+					f === metaPath || normalizePath(f) === normalizedMeta,
 				);
 				if (metaExists && !toAdd.has(metaExists)) {
 					metaToAdd.push(metaExists);

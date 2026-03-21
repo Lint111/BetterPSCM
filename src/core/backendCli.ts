@@ -1,6 +1,7 @@
 import { execCm, execCmToFile, getCmWorkspaceRoot } from './cmCli';
 import { readFile, unlink } from 'fs/promises';
 import { log } from '../util/logger';
+import { normalizePath } from '../util/path';
 import { detectWorkspace, hasPlasticWorkspace } from '../util/plasticDetector';
 import type { PlasticBackend } from './backend';
 import type {
@@ -747,7 +748,7 @@ function parseDiffOutput(stdout: string): ChangesetDiffItem[] {
 		// We extract the destination (second) path and normalize backslashes.
 		const matchMove = line.match(/^([M])\s+"([^"]+)"\s+"([^"]+)"\s*$/);
 		if (matchMove) {
-			const newPath = matchMove[3].trim().replace(/\\/g, '/');
+			const newPath = normalizePath(matchMove[3].trim());
 			items.push({ path: newPath, type: 'moved' });
 			continue;
 		}
@@ -757,7 +758,7 @@ function parseDiffOutput(stdout: string): ChangesetDiffItem[] {
 		// Example: C "src\some path\file.cs"
 		const match3 = line.match(/^([ACDM])\s+"([^"]+)"\s*$/);
 		if (match3) {
-			const path = match3[2].trim().replace(/\\/g, '/');
+			const path = normalizePath(match3[2].trim());
 			items.push({ path, type: classifyDiffType(match3[1]) });
 			continue;
 		}
@@ -767,7 +768,7 @@ function parseDiffOutput(stdout: string): ChangesetDiffItem[] {
 		// Example: A src/newFile.ts
 		const match3c = line.match(/^([ACDM])\s+(.+?)\s*$/);
 		if (match3c) {
-			const path = match3c[2].trim().replace(/\\/g, '/');
+			const path = normalizePath(match3c[2].trim());
 			items.push({ path, type: classifyDiffType(match3c[1]) });
 			continue;
 		}
@@ -917,8 +918,8 @@ function stripWorkspaceRoot(filePath: string): string {
 	if (!root) return filePath;
 
 	// Normalize separators for comparison
-	const normalizedPath = filePath.replace(/\\/g, '/');
-	const normalizedRoot = root.replace(/\\/g, '/').replace(/\/$/, '');
+	const normalizedPath = normalizePath(filePath);
+	const normalizedRoot = normalizePath(root).replace(/\/$/, '');
 
 	// Case-insensitive comparison (Windows paths)
 	if (normalizedPath.toLowerCase().startsWith(normalizedRoot.toLowerCase())) {

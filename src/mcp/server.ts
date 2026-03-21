@@ -29,6 +29,7 @@ import { getClient, setOrgNameHints, setResolvedOrgName } from '../api/client';
 import { HybridBackend } from '../core/backendHybrid';
 import { RestBackend } from '../core/backendRest';
 import { buildReviewAudit } from './reviewAudit.js';
+import { normalizePath } from '../util/path';
 
 // ── Standalone logger (stderr, no vscode) ────────────────────────────
 
@@ -168,7 +169,7 @@ server.registerTool(
 				const resolved: string[] = [];
 
 				for (const p of paths) {
-					const normalized = p.replace(/\\/g, '/').replace(/\/$/, '');
+					const normalized = normalizePath(p).replace(/\/$/, '');
 					if (pendingPaths.includes(normalized) || pendingPaths.includes(p)) {
 						resolved.push(pendingPaths.includes(normalized) ? normalized : p);
 						continue;
@@ -176,7 +177,7 @@ server.registerTool(
 					const prefix = normalized.endsWith('/') ? normalized : normalized + '/';
 					let matchedAny = false;
 					for (const pending of pendingPaths) {
-						const normalizedPending = pending.replace(/\\/g, '/');
+						const normalizedPending = normalizePath(pending);
 						if (normalizedPending.startsWith(prefix) || normalizedPending.toLowerCase().startsWith(prefix.toLowerCase())) {
 							resolved.push(pending);
 							matchedAny = true;
@@ -613,7 +614,7 @@ To simply un-stage files without discarding changes, use bpscm_unstage.`,
 			const unknownPaths: string[] = [];  // Not in status at all
 
 			for (const p of paths) {
-				const changeType = changeMap.get(p) || changeMap.get(p.replace(/\\/g, '/'));
+				const changeType = changeMap.get(p) || changeMap.get(normalizePath(p));
 				if (changeType === 'added') {
 					destructivePaths.push(p);
 				} else if (changeType === 'private') {
@@ -681,7 +682,7 @@ To simply un-stage files without discarding changes, use bpscm_unstage.`,
 						workspaceRoot: wsRoot,
 						files: safePaths.map(p => ({
 							path: p,
-							changeType: changeMap.get(p) || changeMap.get(p.replace(/\\/g, '/')) || 'unknown',
+							changeType: changeMap.get(p) || changeMap.get(normalizePath(p)) || 'unknown',
 						})),
 						getBaseContent: async (filePath) => backend().getBaseRevisionContent(filePath),
 						backupBaseDir: process.env.PLASTIC_BACKUP_DIR,

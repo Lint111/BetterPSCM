@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { ResolvedComment } from '../core/types';
+import { normalizePath } from '../util/path';
 
 const commentDecorationType = vscode.window.createTextEditorDecorationType({
 	backgroundColor: 'rgba(255, 200, 0, 0.08)',
@@ -40,7 +41,7 @@ export class ReviewDecorationProvider implements vscode.Disposable {
 	private applyDecorations(editor: vscode.TextEditor): void {
 		const editorPath = editor.document.uri.fsPath;
 		const matching = this._comments.filter(c =>
-			normalizePath(c.filePath) === normalizePath(editorPath),
+			normalizePathCaseInsensitive(c.filePath) === normalizePathCaseInsensitive(editorPath),
 		);
 
 		if (matching.length === 0) {
@@ -76,6 +77,6 @@ export class ReviewDecorationProvider implements vscode.Disposable {
 	}
 }
 
-function normalizePath(p: string): string {
-	return p.replace(/\\/g, '/').toLowerCase();
+function normalizePathCaseInsensitive(p: string): string {
+	return normalizePath(p).toLowerCase();
 }

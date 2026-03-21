@@ -4,6 +4,7 @@ import { escapeHtml } from '../util/html';
 import { log, logError } from '../util/logger';
 import { getBackend } from '../core/backend';
 import type { ResolvedComment } from '../core/types';
+import { normalizePath } from '../util/path';
 
 export class ReviewSnippetPanel implements vscode.Disposable {
 	static readonly viewType = 'bpscm.reviewSnippetPanel';
@@ -62,7 +63,7 @@ export class ReviewSnippetPanel implements vscode.Disposable {
 
 	private async loadSnippet(comment: ResolvedComment, contextLines: number): Promise<void> {
 		this.currentComment = comment;
-		const fileName = comment.filePath.replace(/\\/g, '/').split('/').pop() ?? '';
+		const fileName = normalizePath(comment.filePath).split('/').pop() ?? '';
 		this.panel.title = `${fileName}:${comment.lineNumber}`;
 
 		try {

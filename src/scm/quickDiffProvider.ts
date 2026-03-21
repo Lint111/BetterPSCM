@@ -3,6 +3,7 @@ import { PLASTIC_URI_SCHEME } from '../constants';
 import { buildPlasticUri, parsePlasticUri } from '../util/uri';
 import { fetchFileContent } from '../core/workspace';
 import { logError } from '../util/logger';
+import { normalizePath } from '../util/path';
 import { LruCache } from '../util/cache';
 import type { NormalizedChange } from '../core/types';
 import { DIFF_CHANGE_TYPES } from '../core/safety';
@@ -29,8 +30,8 @@ export class PlasticQuickDiffProvider implements vscode.QuickDiffProvider {
 	}
 
 	provideOriginalResource(uri: vscode.Uri): vscode.Uri | undefined {
-		const uriPath = uri.fsPath.replace(/\\/g, '/');
-		const rootPath = this.workspaceRootPath.replace(/\\/g, '/');
+		const uriPath = normalizePath(uri.fsPath);
+		const rootPath = normalizePath(this.workspaceRootPath);
 		let relativePath = uriPath;
 		if (rootPath && uriPath.startsWith(rootPath)) {
 			relativePath = uriPath.substring(rootPath.length);
