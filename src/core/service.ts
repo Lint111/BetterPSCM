@@ -4,7 +4,9 @@ import type { StatusResult, CheckinResult } from './types';
 import { expandMetaCompanions, isCommittableChange } from './safety';
 import { normalizePath } from '../util/path';
 
+/** Options for staging and add-to-source-control operations. */
 export interface StageOptions {
+	/** Automatically include companion .meta files (Unity convention). */
 	autoMeta?: boolean;
 }
 
@@ -21,12 +23,14 @@ export class PlasticService {
 
 	// ── Status ──────────────────────────────────────────────────────
 
+	/** Retrieve pending workspace changes. */
 	async getStatus(showPrivate = true): Promise<StatusResult> {
 		return this.backend.getStatus(showPrivate);
 	}
 
 	// ── Staging ─────────────────────────────────────────────────────
 
+	/** Stage files for the next checkin. With autoMeta, companion .meta files are included. */
 	async stage(paths: string[], options?: StageOptions): Promise<void> {
 		let toStage = paths;
 		if (options?.autoMeta) {
@@ -37,23 +41,28 @@ export class PlasticService {
 		this.store.add(toStage);
 	}
 
+	/** Remove files from the staging area. */
 	async unstage(paths: string[]): Promise<void> {
 		this.store.remove(paths);
 	}
 
+	/** Stage all pending changes. */
 	async stageAll(): Promise<void> {
 		const status = await this.backend.getStatus(true);
 		this.store.add(status.changes.map(c => c.path));
 	}
 
+	/** Clear the entire staging area. */
 	async unstageAll(): Promise<void> {
 		this.store.clear();
 	}
 
+	/** Return a snapshot of all currently staged file paths. */
 	getStagedPaths(): string[] {
 		return [...this.store.getAll()];
 	}
 
+	/** Check whether a specific path is currently staged. */
 	isStaged(path: string): boolean {
 		return this.store.has(path);
 	}
@@ -70,6 +79,10 @@ export class PlasticService {
 
 	// ── Checkin ─────────────────────────────────────────────────────
 
+	/**
+	 * Check in staged (or all) files. Automatically adds private files,
+	 * excludes uncommittable items, and retries on transient "not changed" errors.
+	 */
 	async checkin(options: {
 		comment: string;
 		all?: boolean;
@@ -201,6 +214,7 @@ export class PlasticService {
 
 	// ── Add to source control ───────────────────────────────────────
 
+	/** Add private files to source control, expanding directories and companion .meta files. */
 	async addToSourceControl(
 		paths: string[],
 		options?: StageOptions,

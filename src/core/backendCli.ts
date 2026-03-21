@@ -45,6 +45,10 @@ const CM_CHANGE_TYPE_MAP: Record<string, StatusChangeType> = {
 	HD: 'changed',
 };
 
+/**
+ * PlasticBackend implementation using the local `cm` CLI executable.
+ * Handles all workspace-level operations by shelling out to the cm command.
+ */
 export class CliBackend implements PlasticBackend {
 	readonly name = 'cm CLI';
 

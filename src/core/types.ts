@@ -54,15 +54,18 @@ export function normalizeChange(change: StatusChange): NormalizedChange | undefi
  * Backend-neutral result types. Decoupled from REST API schema and cm CLI output.
  */
 
+/** Workspace status containing all pending changes. */
 export interface StatusResult {
 	changes: NormalizedChange[];
 }
 
+/** Result of a successful checkin operation. */
 export interface CheckinResult {
 	changesetId: number;
 	branchName: string;
 }
 
+/** Branch metadata from the repository. */
 export interface BranchInfo {
 	id: number;
 	name: string;
@@ -74,6 +77,7 @@ export interface BranchInfo {
 	changesetsCount?: number;
 }
 
+/** A single changeset (commit) in the repository history. */
 export interface ChangesetInfo {
 	id: number;
 	branch: string;
@@ -84,11 +88,13 @@ export interface ChangesetInfo {
 	guid?: string;
 }
 
+/** A file affected by a changeset diff. */
 export interface ChangesetDiffItem {
 	path: string;
 	type: 'added' | 'changed' | 'deleted' | 'moved';
 }
 
+/** Result of a workspace update operation. */
 export interface UpdateResult {
 	updatedFiles: number;
 	conflicts: string[];
@@ -98,6 +104,7 @@ export interface UpdateResult {
 
 export type ReviewStatus = 'Under review' | 'Reviewed' | 'Rework required';
 
+/** Full metadata for a code review. */
 export interface CodeReviewInfo {
 	id: number;
 	title: string;
@@ -115,6 +122,7 @@ export interface CodeReviewInfo {
 	reviewers: ReviewerInfo[];
 }
 
+/** A reviewer assigned to a code review. */
 export interface ReviewerInfo {
 	name: string;
 	status: ReviewStatus;
@@ -125,6 +133,7 @@ export type ReviewCommentType =
 	| 'Comment' | 'Change' | 'Question' | 'Conversation'
 	| 'StatusUnderReview' | 'StatusReworkRequired' | 'StatusReviewed';
 
+/** A comment on a code review, optionally anchored to a file and line. */
 export interface ReviewCommentInfo {
 	id: number;
 	owner: string;
@@ -136,6 +145,7 @@ export interface ReviewCommentInfo {
 	locationSpec?: string;
 }
 
+/** A review comment resolved to a concrete file path and line number. */
 export interface ResolvedComment {
 	id: number;
 	owner: string;
@@ -148,6 +158,7 @@ export interface ResolvedComment {
 	revisionId?: number;
 }
 
+/** Parameters for creating a new code review. */
 export interface CreateReviewParams {
 	title: string;
 	targetType: 'Branch' | 'Changeset' | 'Label';
@@ -157,6 +168,7 @@ export interface CreateReviewParams {
 	reviewers?: string[];
 }
 
+/** Parameters for adding a comment to a code review. */
 export interface CreateCommentParams {
 	reviewId: number;
 	text: string;
@@ -165,6 +177,7 @@ export interface CreateCommentParams {
 
 // ── Phase 5: Labels, Merges, History, Locks ─────────────────────────
 
+/** A label (tag) attached to a changeset. */
 export interface LabelInfo {
 	id: number;
 	name: string;
@@ -175,12 +188,14 @@ export interface LabelInfo {
 	branch?: string;
 }
 
+/** Parameters for creating a new label. */
 export interface CreateLabelParams {
 	name: string;
 	changesetId: number;
 	comment?: string;
 }
 
+/** A single entry in a file's revision history. */
 export interface FileHistoryEntry {
 	revisionId: number;
 	changesetId: number;
@@ -191,6 +206,7 @@ export interface FileHistoryEntry {
 	type: 'added' | 'changed' | 'deleted' | 'moved';
 }
 
+/** Per-line blame/annotate information linking a line to its last-modifying changeset. */
 export interface BlameLine {
 	lineNumber: number;
 	content: string;
@@ -201,6 +217,7 @@ export interface BlameLine {
 	comment?: string;
 }
 
+/** Result of a merge preview (dry-run) check. */
 export interface MergeReport {
 	canMerge: boolean;
 	conflicts: string[];
@@ -208,6 +225,7 @@ export interface MergeReport {
 	message?: string;
 }
 
+/** Result of an executed merge operation. */
 export interface MergeResult {
 	changesetId: number;
 	conflicts: string[];
@@ -229,6 +247,7 @@ export interface LockRuleInfo {
 	destinationBranches: string[];
 }
 
+/** An active lock on a specific item in the repository. */
 export interface LockInfo {
 	id: string;
 	name: string;
@@ -242,6 +261,7 @@ export interface LockInfo {
 	itemId: number;
 }
 
+/** Thrown when a backend does not support a particular operation. */
 export class NotSupportedError extends Error {
 	constructor(operation: string, backend: string) {
 		super(`"${operation}" is not supported by the ${backend} backend`);

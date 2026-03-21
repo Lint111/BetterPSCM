@@ -12,6 +12,10 @@ import type {
 import type { CheckInRequest } from './types';
 import { normalizeChange, NotSupportedError } from './types';
 
+/**
+ * PlasticBackend implementation using the Unity Cloud REST API.
+ * Handles repo-level operations (branches, reviews, labels, locks) via HTTP.
+ */
 export class RestBackend implements PlasticBackend {
 	readonly name = 'REST API';
 
