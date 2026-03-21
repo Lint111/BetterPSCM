@@ -12,6 +12,11 @@ export const COMMITTABLE_CHANGE_TYPES = new Set<string>([
 	'added', 'changed', 'deleted', 'moved', 'replaced', 'copied', 'locallyDeleted',
 ]);
 
+/** Change types that have a base revision and support inline diffing. */
+export const DIFF_CHANGE_TYPES = new Set<string>([
+	'changed', 'checkedOut', 'replaced', 'moved', 'copied',
+]);
+
 /**
  * Check if a change type represents a real modification safe to commit.
  */

@@ -5,10 +5,7 @@ import { fetchFileContent } from '../core/workspace';
 import { logError } from '../util/logger';
 import { LruCache } from '../util/cache';
 import type { NormalizedChange } from '../core/types';
-
-const DIFF_CHANGE_TYPES = new Set([
-	'changed', 'checkedOut', 'replaced', 'moved', 'copied',
-]);
+import { DIFF_CHANGE_TYPES } from '../core/safety';
 
 /**
  * QuickDiffProvider for Plastic SCM — supplies the original file URI for inline diffs.

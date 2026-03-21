@@ -6,10 +6,7 @@ import { buildPlasticUri, parsePlasticUri } from '../util/uri';
 import { getWorkspaceGuid } from '../api/client';
 import { logError } from '../util/logger';
 import { PLASTIC_URI_SCHEME } from '../constants';
-
-const DIFF_CHANGE_TYPES = new Set([
-	'changed', 'checkedOut', 'replaced', 'moved', 'copied',
-]);
+import { DIFF_CHANGE_TYPES } from '../core/safety';
 
 export function registerGeneralCommands(
 	context: vscode.ExtensionContext,
