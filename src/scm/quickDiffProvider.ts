@@ -45,8 +45,10 @@ export class PlasticQuickDiffProvider implements vscode.QuickDiffProvider {
 			return undefined;
 		}
 
-		const revSpec = change.revisionGuid ?? `serverpath:/${change.path}`;
-		return buildPlasticUri(this.workspaceGuid, revSpec, change.path);
+		// For moved files, fetch base content from the OLD path (sourcePath)
+		const basePath = change.sourcePath ?? change.path;
+		const revSpec = change.revisionGuid ?? `serverpath:/${basePath}`;
+		return buildPlasticUri(this.workspaceGuid, revSpec, basePath);
 	}
 }
 

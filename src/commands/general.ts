@@ -59,11 +59,16 @@ export function registerGeneralCommands(
 					}
 
 					const wsGuid = getWorkspaceGuid();
-					const revSpec = change.revisionGuid ?? `serverpath:/${change.path}`;
-					const originalUri = buildPlasticUri(wsGuid, revSpec, change.path);
+					// For moved files, fetch base content from the OLD path (sourcePath)
+					const basePath = change.sourcePath ?? change.path;
+					const revSpec = change.revisionGuid ?? `serverpath:/${basePath}`;
+					const originalUri = buildPlasticUri(wsGuid, revSpec, basePath);
 
 					const fileName = change.path.split('/').pop() ?? change.path;
-					const title = `${fileName} (Base ↔ Working)`;
+					const oldName = change.sourcePath?.split('/').pop();
+					const title = oldName && oldName !== fileName
+						? `${oldName} → ${fileName} (Base ↔ Working)`
+						: `${fileName} (Base ↔ Working)`;
 
 					await vscode.commands.executeCommand('vscode.diff', originalUri, uri, title);
 				} catch (err) {
