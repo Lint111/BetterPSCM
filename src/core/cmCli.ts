@@ -161,7 +161,7 @@ function execCmRaw(binary: string, args: string[], maxBuffer?: number): Promise<
 		}
 		const child = execFile(binary, args, opts, (err, stdout, stderr) => {
 			_activeChildren.delete(child);
-			if (err && (err as any).killed || (err as any).signal === 'SIGTERM') {
+			if (err && ((err as any).killed || (err as any).signal === 'SIGTERM')) {
 				resolve({ stdout: stdout ?? '', stderr: stderr ?? '', exitCode: 1 });
 				return;
 			}
