@@ -161,7 +161,10 @@ export class PlasticService {
 		const filtered = paths.filter(p => {
 			if (autoAdded.includes(p)) return true;
 			const ct = changeMap.get(p) || changeMap.get(normalizePath(p));
-			if (!ct || !isCommittableChange(ct)) {
+			// Allow checkedOut through — files edited by external tools (Unity, agents)
+			// may still show as CO. cm checkin will reject truly unchanged ones,
+			// and _checkinWithRetry handles the exclusion gracefully.
+			if (!ct || (!isCommittableChange(ct) && ct !== 'checkedOut')) {
 				autoExcluded.push(p);
 				return false;
 			}
@@ -185,20 +188,26 @@ export class PlasticService {
 		comment: string,
 		autoExcluded: string[],
 	): Promise<CheckinResult> {
-		const MAX_RETRIES = 5;
+		const MAX_RETRIES = 20;
 		let remaining = paths;
 		for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
 			try {
 				return await this.backend.checkin(remaining, comment);
 			} catch (err) {
 				const msg = err instanceof Error ? err.message : String(err);
-				const match = msg.match(/The item '([^']+)' is not changed/i);
+				// Match various cm rejection patterns for unchanged/stale files
+				const match = msg.match(/The item '([^']+)' is not changed/i)
+					|| msg.match(/item '([^']+)' (?:has no changes|is unchanged|was not modified)/i)
+					|| msg.match(/cannot checkin '([^']+)'/i)
+					|| msg.match(/not changed in current workspace.*?'([^']+)'/i)
+					|| msg.match(/'([^']+)'.*not changed/i);
 				if (match && attempt < MAX_RETRIES) {
-					const rejected = match[1];
+					const rejected = normalizePath(match[1]);
 					const filtered = remaining.filter(p => {
 						const norm = normalizePath(p);
 						return p !== rejected && norm !== rejected
-							&& !p.endsWith(rejected) && !norm.endsWith(rejected);
+							&& !p.endsWith(rejected) && !norm.endsWith(rejected)
+							&& !rejected.endsWith(norm) && !rejected.endsWith(p);
 					});
 					autoExcluded.push(rejected);
 					if (filtered.length === 0) throw err;

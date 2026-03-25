@@ -158,14 +158,17 @@ describe('PlasticService — checkin', () => {
 		expect(addedPaths).toContain('Assets/new.cs.meta');
 	});
 
-	it('checkin filters out non-committable changes', async () => {
+	it('checkin filters out non-committable changes but allows checkedOut', async () => {
 		const service = makeService([
 			{ path: 'Assets/foo.cs', changeType: 'changed', dataType: 'File' },
 			{ path: 'Assets/stale.cs', changeType: 'checkedOut', dataType: 'File' },
+			{ path: 'Assets/ignored.cs', changeType: 'ignored', dataType: 'File' },
 		]);
 		const result = await service.checkin({ comment: 'test', all: true });
-		expect(backend.checkin).toHaveBeenCalledWith(['Assets/foo.cs'], 'test');
-		expect(result.autoExcluded).toContain('Assets/stale.cs');
+		// checkedOut passes through filter (cm checkin handles rejection via retry)
+		expect(backend.checkin).toHaveBeenCalledWith(['Assets/foo.cs', 'Assets/stale.cs'], 'test');
+		expect(result.autoExcluded).toContain('Assets/ignored.cs');
+		expect(result.autoExcluded).not.toContain('Assets/stale.cs');
 	});
 
 	it('checkin clears staging store on success', async () => {
@@ -193,7 +196,7 @@ describe('PlasticService — checkin', () => {
 
 	it('checkin throws if no paths to commit', async () => {
 		const service = makeService([
-			{ path: 'Assets/stale.cs', changeType: 'checkedOut', dataType: 'File' },
+			{ path: 'Assets/ignored.cs', changeType: 'ignored', dataType: 'File' },
 		]);
 		await expect(service.checkin({ comment: 'test', all: true }))
 			.rejects.toThrow('No files with real changes');
