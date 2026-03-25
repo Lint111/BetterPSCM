@@ -266,21 +266,26 @@ export class RestBackend implements PlasticBackend {
 		const orgName = getOrgName();
 		const repoName = getRepoName();
 
-		const { data, error } = await client.GET(
-			'/api/v1/organizations/{orgName}/repos/{repoName}/changesets/{changesetId}/diff' as any,
-			{ params: { path: { orgName, repoName, changesetId } } },
-		);
+		try {
+			const { data, error } = await client.GET(
+				'/api/v1/organizations/{orgName}/repos/{repoName}/changesets/{changesetId}/diff' as any,
+				{ params: { path: { orgName, repoName, changesetId } } },
+			);
 
-		if (error) {
-			log(`getChangesetDiff failed for cs:${changesetId}: ${error instanceof Error ? error.message : String(error)}`);
-			return [];
+			if (error) {
+				const msg = error instanceof Error ? error.message : JSON.stringify(error);
+				throw new Error(`REST diff failed for cs:${changesetId}: ${msg}`);
+			}
+
+			const diffs = (data as any[]) ?? [];
+			return diffs.map((d: any) => ({
+				path: d.path ?? '',
+				type: (d.type ?? 'changed').toLowerCase() as 'added' | 'changed' | 'deleted' | 'moved',
+			}));
+		} catch (err) {
+			log(`getChangesetDiff failed for cs:${changesetId}: ${err instanceof Error ? err.message : String(err)}`);
+			throw err;
 		}
-
-		const diffs = (data as any[]) ?? [];
-		return diffs.map((d: any) => ({
-			path: d.path ?? '',
-			type: (d.type ?? 'changed').toLowerCase() as 'added' | 'changed' | 'deleted' | 'moved',
-		}));
 	}
 
 	// ── Phase 4: Code Reviews ──────────────────────────────────────

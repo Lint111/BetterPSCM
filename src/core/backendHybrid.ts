@@ -12,6 +12,11 @@ const HYBRID_CLI_METHODS = new Set<string>([
 	'resolveRevisionPaths', 'checkMergeAllowed', 'executeMerge',
 ]);
 
+/** Methods where CLI is tried first, falling back to REST on failure. */
+const HYBRID_CLI_FIRST_METHODS = new Set<string>([
+	'getChangesetDiff', 'listChangesets',
+]);
+
 /**
  * Hybrid backend using Proxy — routes workspace ops to CLI, repo ops to REST.
  *
@@ -32,6 +37,29 @@ export class HybridBackend implements PlasticBackend {
 			get(target, prop: string) {
 				if (prop === 'name') return target.name;
 				if (prop === 'cli' || prop === 'rest') return target[prop as 'cli' | 'rest'];
+
+				// CLI-first methods: try CLI, fall back to REST on failure
+				if (HYBRID_CLI_FIRST_METHODS.has(prop)) {
+					const cliFn = (target.cli as any)[prop];
+					const restFn = (target.rest as any)[prop];
+					if (typeof cliFn === 'function' && typeof restFn === 'function') {
+						return async (...args: any[]) => {
+							try {
+								const result = await cliFn.apply(target.cli, args);
+								// Treat empty array as failure for diff/list methods
+								if (Array.isArray(result) && result.length === 0) {
+									log(`[Hybrid] ${prop} CLI returned empty, trying REST`);
+									return restFn.apply(target.rest, args);
+								}
+								return result;
+							} catch (err) {
+								log(`[Hybrid] ${prop} CLI failed, trying REST: ${err instanceof Error ? err.message : err}`);
+								return restFn.apply(target.rest, args);
+							}
+						};
+					}
+				}
+
 				const backend = HYBRID_CLI_METHODS.has(prop) ? target.cli : target.rest;
 				if (typeof (backend as any)[prop] === 'function') {
 					return (backend as any)[prop].bind(backend);
