@@ -169,6 +169,15 @@ export class CliBackend implements PlasticBackend {
 			return this.catRevision(revSpec, serverPath);
 		}
 
+		// Bare serverpath: without revision qualifier (from quick diff fallback).
+		// Convert to workspace-relative path so cm cat resolves the loaded base revision.
+		const bareServerPath = revSpec.match(/^serverpath:\/(.+)$/);
+		if (bareServerPath) {
+			const relativePath = bareServerPath[1];
+			log(`[getFileContent] bare serverpath → using workspace-relative path: ${relativePath}`);
+			return this.catRevision(relativePath, relativePath);
+		}
+
 		// Direct revspec (e.g. revid:N from quick diff)
 		return this.catRevision(revSpec, revSpec);
 	}
@@ -397,13 +406,14 @@ export class CliBackend implements PlasticBackend {
 			log(`[getChangesetDiff] cm diff failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
 		}
 
-		// Fallback 1: try cm diff without --machinereadable
-		const result2 = await execCm(['diff', `cs:${parentId}`, `cs:${changesetId}`]);
+		// Fallback 1: try cm diff with alternative format flags
+		// NOTE: always use --machinereadable to prevent GUI diff viewer launch
+		const result2 = await execCm(['diff', `cs:${parentId}`, `cs:${changesetId}`, '--machinereadable', '--repositorypaths']);
 		if (result2.exitCode === 0 && result2.stdout.trim().length > 0) {
-			log(`[getChangesetDiff] cm diff (no flag) raw output (first 500): ${result2.stdout.substring(0, 500)}`);
+			log(`[getChangesetDiff] cm diff (alt flags) raw output (first 500): ${result2.stdout.substring(0, 500)}`);
 			const items = parseDiffOutput(result2.stdout);
 			if (items.length > 0) {
-				log(`[getChangesetDiff] parsed ${items.length} items from cm diff (no flag)`);
+				log(`[getChangesetDiff] parsed ${items.length} items from cm diff (alt flags)`);
 				return items;
 			}
 		}
@@ -897,6 +907,29 @@ function parseStatusLine(line: string): NormalizedChange | undefined {
 	let filePath = beforeMerge.substring(0, secondLastSpace);
 	if (!filePath) return undefined;
 
+	// For moved files, filePath contains both old and new absolute paths joined by a space.
+	// Split them using the workspace root as anchor (both paths start with it).
+	let sourcePath: string | undefined;
+	if (effectiveType === 'moved') {
+		const root = getCmWorkspaceRoot();
+		if (root) {
+			const normalizedRoot = normalizePath(root).toLowerCase();
+			const normalizedFilePath = normalizePath(filePath).toLowerCase();
+			// Find the second occurrence of the workspace root in the path string
+			const firstIdx = normalizedFilePath.indexOf(normalizedRoot);
+			if (firstIdx >= 0) {
+				const searchFrom = firstIdx + normalizedRoot.length;
+				const secondIdx = normalizedFilePath.indexOf(normalizedRoot, searchFrom);
+				if (secondIdx > 0) {
+					const oldRaw = filePath.substring(firstIdx, secondIdx).trim();
+					const newRaw = filePath.substring(secondIdx).trim();
+					sourcePath = stripWorkspaceRoot(oldRaw);
+					filePath = newRaw;
+				}
+			}
+		}
+	}
+
 	// cm status returns absolute paths — strip the workspace root to get relative paths
 	filePath = stripWorkspaceRoot(filePath);
 
@@ -904,11 +937,15 @@ function parseStatusLine(line: string): NormalizedChange | undefined {
 	if (effectiveType !== changeType) {
 		log(`[parseStatusLine] compound code="${typeCode}+${secondCode}" path="${filePath}"`);
 	}
+	if (sourcePath) {
+		log(`[parseStatusLine] moved: "${sourcePath}" → "${filePath}"`);
+	}
 
 	return {
 		path: filePath,
 		changeType: effectiveType,
 		dataType: isDirStr === 'True' ? 'Directory' : 'File',
+		sourcePath,
 	};
 }
 

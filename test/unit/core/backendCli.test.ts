@@ -294,6 +294,42 @@ describe('CliBackend', () => {
 			const result = await backend.getFileContent('revid:999');
 			expect(result).toBeUndefined();
 		});
+
+		it('converts bare serverpath to workspace-relative path for cm cat', async () => {
+			mockExecCm.mockResolvedValue({
+				stdout: 'base content',
+				stderr: '',
+				exitCode: 0,
+			});
+
+			const result = await backend.getFileContent('serverpath:/Assets/Scripts/Foo.cs');
+			expect(result).toBeInstanceOf(Buffer);
+			expect(result?.toString()).toBe('base content');
+			// Should call cm cat with the relative path, not the serverpath: prefix
+			expect(mockExecCm).toHaveBeenCalledWith(
+				['cat', 'Assets/Scripts/Foo.cs', '--raw'],
+				10 * 1024 * 1024,
+			);
+		});
+
+		it('handles serverpath#cs:N format via revision resolution', async () => {
+			// First call: cm find revision (exact match)
+			mockExecCm.mockResolvedValueOnce({
+				stdout: '123\n',
+				stderr: '',
+				exitCode: 0,
+			});
+			// Second call: cm cat revid:123
+			mockExecCm.mockResolvedValueOnce({
+				stdout: 'revision content',
+				stderr: '',
+				exitCode: 0,
+			});
+
+			const result = await backend.getFileContent('serverpath:/Assets/Foo.cs#cs:42');
+			expect(result).toBeInstanceOf(Buffer);
+			expect(result?.toString()).toBe('revision content');
+		});
 	});
 
 	describe('listBranches', () => {
