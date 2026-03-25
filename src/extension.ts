@@ -299,6 +299,8 @@ async function setupProvider(context: vscode.ExtensionContext): Promise<void> {
 
 	// Start MCP server if enabled (for standalone stdio consumers)
 	const mcpManager = disposables.add(new McpServerManager(context.extensionUri, wsFolder.uri.fsPath));
+	// Refresh extension state when MCP server performs mutations (checkin, stage, undo, etc.)
+	mcpManager.onStateChanged(() => provider.refresh());
 	if (getConfig().mcpEnabled) {
 		mcpManager.start();
 	}

@@ -14,7 +14,7 @@
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { setCmWorkspaceRoot, detectCm, isCmAvailable, getCmWorkspaceRoot } from '../core/cmCli';
+import { setCmWorkspaceRoot, detectCm, isCmAvailable, getCmWorkspaceRoot, execCmToFile } from '../core/cmCli';
 import { CliBackend } from '../core/backendCli';
 import { setBackend, getBackend } from '../core/backend';
 import type { PlasticBackend } from '../core/backend';
@@ -30,6 +30,10 @@ import { HybridBackend } from '../core/backendHybrid';
 import { RestBackend } from '../core/backendRest';
 import { buildReviewAudit } from './reviewAudit.js';
 import { normalizePath } from '../util/path';
+import { join } from 'path';
+import { unlink } from 'fs/promises';
+import { createHash } from 'crypto';
+import { createReadStream } from 'fs';
 
 // ── Standalone logger (stderr, no vscode) ────────────────────────────
 
@@ -75,6 +79,40 @@ function getService(): PlasticService {
 	return service;
 }
 
+/** Hash a file using streaming SHA-256 — no full content in memory. */
+function hashFile(filePath: string): Promise<string> {
+	return new Promise((resolve, reject) => {
+		const hash = createHash('sha256');
+		const stream = createReadStream(filePath);
+		stream.on('data', (chunk) => hash.update(chunk));
+		stream.on('end', () => resolve(hash.digest('hex')));
+		stream.on('error', reject);
+	});
+}
+
+/**
+ * Check if a CH file is stale by comparing its SHA-256 hash against
+ * the base revision fetched via cm cat (streamed to temp file for raw bytes).
+ */
+async function isFileStale(filePath: string, wsRoot: string): Promise<boolean> {
+	try {
+		const absPath = join(wsRoot, filePath);
+		const baseTempPath = await execCmToFile(['cat', filePath, '--raw']);
+		if (!baseTempPath) return false; // can't get base → assume changed
+		try {
+			const [workHash, baseHash] = await Promise.all([
+				hashFile(absPath),
+				hashFile(baseTempPath),
+			]);
+			return workHash === baseHash;
+		} finally {
+			unlink(baseTempPath).catch(() => {});
+		}
+	} catch {
+		return false; // error → assume changed (safe default)
+	}
+}
+
 function textResult(text: string) {
 	return { content: [{ type: 'text' as const, text }] };
 }
@@ -98,6 +136,18 @@ function audit(tool: string, action: string, details?: Record<string, unknown>) 
 		...details,
 	};
 	process.stderr.write(`[AUDIT] ${JSON.stringify(entry)}\n`);
+}
+
+// ── IPC notifications to extension host ─────────────────────────────
+// When the MCP server mutates workspace state (checkin, stage, undo, etc.),
+// notify the parent extension process so it can refresh the SCM panel.
+
+function notifyStateChanged(tool: string): void {
+	try {
+		process.send?.({ type: 'stateChanged', tool });
+	} catch {
+		// Not running as a forked child process (e.g., standalone stdio mode)
+	}
 }
 
 // ── Mutex for write operations ──────────────────────────────────────
@@ -124,25 +174,57 @@ server.registerTool(
 	'bpscm_status',
 	{
 		title: 'Workspace Status',
-		description: 'List pending changes in the Plastic SCM workspace. Returns file paths, change types, staged status, and flags checkouts with no content modifications as potentially stale.',
+		description: `List pending changes in the Plastic SCM workspace. Returns file paths, change types, staged status.
+
+Set detect_stale=true to run cm diff and accurately flag CH files that have no real content changes (stale checkouts). Without this flag, only CO files are flagged as possiblyStale — CH files may also be stale but require a diff to confirm.
+
+TIP: Use detect_stale=true before staging/checkin to avoid commit failures from stale files.`,
 		inputSchema: z.object({
 			showPrivate: z.boolean().optional().describe('Include unversioned files (default: true)'),
+			detect_stale: z.boolean().optional().describe('Run cm diff to accurately detect stale CH files. Adds ~1s but prevents checkin failures. (default: false)'),
 		}),
 	},
-	async ({ showPrivate }) => {
+	async ({ showPrivate, detect_stale }) => {
 		try {
 			const result = await backend().getStatus(showPrivate ?? true);
 
-			// Detect stale checkouts: files marked as 'checkedOut' often have no real content changes.
-			// We flag them so the caller can decide to undo checkout before committing.
-			const changes = result.changes.map(c => ({
-				path: c.path,
-				type: c.changeType,
-				staged: getService().isStaged(c.path),
-				// 'checkedOut' (CO) means the file was opened for editing but may have no actual modifications.
-				// This is distinct from 'changed' (CH) which indicates real content differences.
-				possiblyStale: c.changeType === 'checkedOut',
-			}));
+			// Build set of stale CH files via SHA-256 hash comparison (if requested)
+			const stalePaths = new Set<string>();
+			if (detect_stale) {
+				const wsRoot = getCmWorkspaceRoot() || '.';
+				const chFiles = result.changes
+					.filter(c => c.changeType === 'changed' && c.dataType === 'File')
+					.map(c => c.path);
+				if (chFiles.length > 0) {
+					const BATCH_SIZE = 5;
+					for (let i = 0; i < chFiles.length; i += BATCH_SIZE) {
+						const batch = chFiles.slice(i, i + BATCH_SIZE);
+						const results = await Promise.all(
+							batch.map(async (filePath) => ({
+								filePath,
+								stale: await isFileStale(filePath, wsRoot),
+							})),
+						);
+						for (const { filePath, stale } of results) {
+							if (stale) stalePaths.add(filePath);
+						}
+					}
+				}
+			}
+
+			const changes = result.changes.map(c => {
+				let possiblyStale = c.changeType === 'checkedOut';
+				if (detect_stale && c.changeType === 'changed' && stalePaths.has(c.path)) {
+					possiblyStale = true;
+				}
+				return {
+					path: c.path,
+					type: c.changeType,
+					staged: getService().isStaged(c.path),
+					possiblyStale,
+					...(c.sourcePath ? { sourcePath: c.sourcePath } : {}),
+				};
+			});
 			return jsonResult({ branch: await backend().getCurrentBranch(), changes });
 		} catch (err) {
 			return errorResult(err instanceof Error ? err.message : String(err));
@@ -187,6 +269,7 @@ server.registerTool(
 				}
 
 				await getService().stage(resolved, { autoMeta: false });
+				notifyStateChanged('bpscm_stage');
 				return textResult(`Staged ${resolved.length} file(s). Total staged: ${getService().getStagedPaths().length}`);
 			} catch (err) {
 				return errorResult(err instanceof Error ? err.message : String(err));
@@ -209,6 +292,7 @@ server.registerTool(
 		return withMcpLock(async () => {
 			try {
 				await getService().unstage(paths);
+				notifyStateChanged('bpscm_unstage');
 				return textResult(`Unstaged ${paths.length} file(s). Total staged: ${getService().getStagedPaths().length}`);
 			} catch (err) {
 				return errorResult(err instanceof Error ? err.message : String(err));
@@ -251,6 +335,7 @@ SMART HANDLING:
 					autoAdded: result.autoAdded.length,
 					autoExcluded: result.autoExcluded.length,
 				});
+				notifyStateChanged('bpscm_checkin');
 
 				const response: Record<string, unknown> = {
 					changesetId: result.changesetId,
@@ -549,6 +634,7 @@ Supports exact file paths and directory prefixes (e.g. "Assets/Scripts/AbilityCh
 					);
 				}
 				audit('bpscm_add', 'completed', { addedCount: added.length });
+				notifyStateChanged('bpscm_add');
 				return jsonResult({
 					addedFiles: added.length,
 					paths: added,
@@ -703,6 +789,7 @@ To simply un-stage files without discarding changes, use bpscm_unstage.`,
 				criticalCount: criticalFiles.length,
 				skippedPrivate: privatePaths.length,
 			});
+			notifyStateChanged('bpscm_undo_checkout');
 
 			const result: Record<string, unknown> = {
 				revertedFiles: reverted.length,
@@ -738,10 +825,15 @@ server.registerTool(
 	'bpscm_clean_stale',
 	{
 		title: 'Clean Stale Checkouts',
-		description: `Automatically detect and undo stale checkouts (CO files with no real changes).
+		description: `Automatically detect and undo stale checkouts — files checked out but with no real content changes.
+
+Detects TWO kinds of stale files:
+- CO (checkedOut) files — always stale by definition
+- CH (changed) files where working copy content is byte-identical to the base revision (stale checkout that cm reports as "changed")
 
 SAFETY:
-- Only targets checked-out (CO) files — NEVER touches added (AD), changed (CH), or private (PR) files.
+- Never touches added (AD), private (PR), deleted (DE), or moved (MV) files.
+- CH files are only reverted if content comparison confirms they are unchanged.
 - Defaults to dry_run=true (preview mode). You must explicitly set dry_run=false to execute.
 - Blocks bulk reverts of more than ${BULK_OPERATION_THRESHOLD} files unless confirmed.
 - All operations are audit-logged.
@@ -761,31 +853,79 @@ Run this before checkin to avoid commit failures from unchanged files.`,
 			audit('bpscm_clean_stale', 'invoked', { dry_run: isDryRun, confirm_bulk });
 
 			const status = await backend().getStatus(false);
-			// SAFETY: Only target CO (checkedOut) files. Never AD, CH, PR, DE, or any other type.
-			// Undoing checkout on AD files would remove them from source control entirely.
-			const staleFiles = status.changes
+
+			// Phase 1: CO files are always stale (checked out, no content comparison needed)
+			const coFiles = status.changes
 				.filter(c => c.changeType === 'checkedOut')
 				.map(c => c.path);
 
-			// Also report what we're NOT touching for transparency
+			// Phase 2: CH files may be stale if content matches base revision.
+			// This happens when an agent checks out a file, makes a no-op edit (or
+			// edits then reverts), and cm status still reports CH based on metadata.
+			const chFiles = status.changes
+				.filter(c => c.changeType === 'changed' && c.dataType === 'File')
+				.map(c => c.path);
+
+			const staleCH: string[] = [];
+			const trulyChangedCount = { value: 0 };
+			const wsRoot = getCmWorkspaceRoot() || '.';
+
+			if (chFiles.length > 0) {
+				audit('bpscm_clean_stale', 'checking_ch_files', { count: chFiles.length });
+				// Compare each CH file's SHA-256 hash against base revision.
+				// Uses cm cat streamed to temp file (raw bytes, no encoding corruption).
+				const BATCH_SIZE = 5;
+				for (let i = 0; i < chFiles.length; i += BATCH_SIZE) {
+					const batch = chFiles.slice(i, i + BATCH_SIZE);
+					const results = await Promise.all(
+						batch.map(async (filePath) => ({
+							filePath,
+							stale: await isFileStale(filePath, wsRoot),
+						})),
+					);
+					for (const { filePath, stale } of results) {
+						if (stale) {
+							staleCH.push(filePath);
+						} else {
+							trulyChangedCount.value++;
+						}
+					}
+				}
+				audit('bpscm_clean_stale', 'ch_analysis', {
+					totalCH: chFiles.length,
+					staleCH: staleCH.length,
+					trulyChanged: trulyChangedCount.value,
+				});
+			}
+
+			const staleFiles = [...coFiles, ...staleCH];
+
+			// Report what we're NOT touching for transparency
 			const addedFiles = status.changes.filter(c => c.changeType === 'added').length;
-			const changedFiles = status.changes.filter(c => c.changeType === 'changed').length;
+			const changedFiles = trulyChangedCount.value;
 
 			if (staleFiles.length === 0) {
 				audit('bpscm_clean_stale', 'no_stale_found');
 				return textResult(
-					`No stale checkouts (CO) detected. ` +
-					`Workspace has ${addedFiles} added and ${changedFiles} changed file(s) — these are left untouched.`,
+					`No stale checkouts detected. ` +
+					`Workspace has ${addedFiles} added and ${changedFiles} truly changed file(s) — these are left untouched.` +
+					(chFiles.length > 0 ? ` (${chFiles.length} CH files were content-compared and all have real changes.)` : ''),
 				);
 			}
 
 			if (isDryRun) {
-				audit('bpscm_clean_stale', 'dry_run', { staleCount: staleFiles.length });
+				audit('bpscm_clean_stale', 'dry_run', { staleCount: staleFiles.length, coCount: coFiles.length, staleCHCount: staleCH.length });
 				return jsonResult({
 					staleFiles,
 					count: staleFiles.length,
-					skipped: { added: addedFiles, changed: changedFiles },
-					message: 'DRY RUN (default) — only CO files listed above would be reverted. Set dry_run=false to execute. AD/CH files are never touched.',
+					breakdown: {
+						co: coFiles.length,
+						staleCH: staleCH.length,
+						staleCHPaths: staleCH,
+					},
+					skipped: { added: addedFiles, trulyChanged: changedFiles },
+					message: `DRY RUN (default) — ${coFiles.length} CO + ${staleCH.length} stale CH file(s) would be reverted. ` +
+						`Set dry_run=false to execute. AD files and truly changed CH files are never touched.`,
 				});
 			}
 
@@ -804,13 +944,15 @@ Run this before checkin to avoid commit failures from unchanged files.`,
 			// Pre-hook: backup files before destructive operation
 			let backupPath: string | undefined;
 			try {
-				const wsRoot = getCmWorkspaceRoot() || '.';
 				const wsName = (await backend().getCurrentBranch()) || 'unknown-workspace';
 				backupPath = await createBackup({
 					tool: 'clean_stale',
 					workspace: wsName,
 					workspaceRoot: wsRoot,
-					files: staleFiles.map(p => ({ path: p, changeType: 'checkedOut' })),
+					files: staleFiles.map(p => ({
+						path: p,
+						changeType: coFiles.includes(p) ? 'checkedOut' : 'changed',
+					})),
 					getBaseContent: async (filePath) => backend().getBaseRevisionContent(filePath),
 					backupBaseDir: process.env.PLASTIC_BACKUP_DIR,
 				});
@@ -831,20 +973,38 @@ Run this before checkin to avoid commit failures from unchanged files.`,
 
 			audit('bpscm_clean_stale', 'completed', {
 				revertedCount: reverted.length,
+				coReverted: coFiles.length,
+				staleCHReverted: staleCH.length,
 				criticalCount: criticalReverted.length,
 				addedSkipped: addedFiles,
-				changedSkipped: changedFiles,
+				trulyChangedSkipped: changedFiles,
 			});
+			notifyStateChanged('bpscm_clean_stale');
+
+			// Detect files that will trigger Unity reimport/recompilation
+			const unityReimportFiles = reverted.filter(p =>
+				p.endsWith('.cs') || p.endsWith('.shader') || p.endsWith('.compute')
+				|| p.endsWith('.mat') || p.endsWith('.asset')
+				|| UNITY_CRITICAL_EXTENSIONS.some(ext => p.endsWith(ext)),
+			);
 
 			const result: Record<string, unknown> = {
 				revertedFiles: reverted.length,
 				paths: reverted,
-				skipped: { added: addedFiles, changed: changedFiles },
-				message: `Reverted ${reverted.length} stale checkout(s). ${addedFiles} added and ${changedFiles} changed file(s) left untouched.`,
+				breakdown: { co: coFiles.length, staleCH: staleCH.length },
+				skipped: { added: addedFiles, trulyChanged: changedFiles },
+				message: `Reverted ${reverted.length} stale file(s) (${coFiles.length} CO + ${staleCH.length} stale CH). ` +
+					`${addedFiles} added and ${changedFiles} truly changed file(s) left untouched.`,
 			};
 			if (criticalReverted.length > 0) {
 				result.criticalFilesReverted = criticalReverted;
-				result.unityWarning = `${criticalReverted.length} Unity-critical file(s) were reverted. Verify references after reopening Unity.`;
+			}
+			if (unityReimportFiles.length > 0) {
+				result.unityReimportWarning =
+					`${unityReimportFiles.length} reverted file(s) will trigger Unity reimport/recompilation. ` +
+					`If Unity is running, it may re-checkout these files (creating new stale CH records). ` +
+					`To prevent this cycle: close Unity before running clean_stale, or run bpscm_checkin ` +
+					`which auto-excludes stale files via retry.`;
 			}
 			if (backupPath) {
 				result.backupPath = backupPath;
@@ -918,6 +1078,7 @@ ACTIONS:
 				audit('bpscm_restore_backup', 'restore_invoked', { backup_id, filterPaths: paths?.length ?? 'all' });
 				const restored = await restoreBackup(wsName, wsRoot, backup_id, paths, process.env.PLASTIC_BACKUP_DIR);
 				audit('bpscm_restore_backup', 'restore_completed', { restoredCount: restored.length });
+				notifyStateChanged('bpscm_restore_backup');
 				return jsonResult({
 					restoredFiles: restored.length,
 					paths: restored,
