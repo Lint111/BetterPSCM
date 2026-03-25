@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.2.0] - 2026-03-25
+
+### Added
+- Moved file diff titles showing old → new filename
+- Stale CH file detection via SHA-256 content comparison in MCP clean_stale
+- IPC notifications from MCP server to refresh SCM panel on mutations
+- CLI-first hybrid fallback for changeset diffs and listings
+
+### Fixed
+- Operator precedence bug in cm CLI killed/SIGTERM error handling
+- Checkin now allows checkedOut files through filter (external tool edits)
+- Robust checkin retry with broader cm rejection pattern matching
+- Quick diff fetches base content from sourcePath for moved files
+- REST backend propagates diff errors instead of silently returning empty
+
 ## [0.1.0] - 2026-03-13
 
 ### Added
