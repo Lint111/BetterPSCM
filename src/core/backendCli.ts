@@ -649,6 +649,19 @@ export class CliBackend implements PlasticBackend {
 		return paths;
 	}
 
+	async removeFromSourceControl(paths: string[]): Promise<string[]> {
+		if (paths.length === 0) return [];
+		// cm remove marks controlled files for deletion (LD → DE).
+		// Required before checkin can commit locally-deleted files.
+		const args = ['remove', ...paths];
+		const result = await execCm(args);
+		if (result.exitCode !== 0) {
+			throw new Error(`cm remove failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
+		}
+		log(`Marked for deletion: ${paths.length} file(s)`);
+		return paths;
+	}
+
 	// Phase 7 — get base revision content for backup
 	async getBaseRevisionContent(path: string): Promise<Buffer | null> {
 		const result = await execCm(['cat', path, '--raw'], 10 * 1024 * 1024);

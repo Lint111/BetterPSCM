@@ -26,7 +26,7 @@ import { resolveConfig } from '../util/configResolver';
 import { initDetectedConfig } from '../util/config';
 import { detectWorkspace, detectCachedToken } from '../util/plasticDetector';
 import { getClient, setOrgNameHints, setResolvedOrgName } from '../api/client';
-import { HybridBackend } from '../core/backendHybrid';
+import { createHybridBackend } from '../core/backendHybrid';
 import { RestBackend } from '../core/backendRest';
 import { buildReviewAudit } from './reviewAudit.js';
 import { normalizePath } from '../util/path';
@@ -310,6 +310,7 @@ server.registerTool(
 
 SMART HANDLING:
 - auto_add_private=true (default): Automatically runs 'cm add' on any PR (private/untracked) files in the staged set before committing. This eliminates the common friction where new files can't be checked in because they were never added to source control.
+- Auto-removes locally-deleted (LD) files via 'cm remove' so deletions commit cleanly.
 - Auto-filters stale CO (checked-out but unchanged) files.
 - Use exclude_paths to skip specific files.`,
 		inputSchema: z.object({
@@ -333,6 +334,7 @@ SMART HANDLING:
 				audit('bpscm_checkin', 'completed', {
 					changesetId: result.changesetId,
 					autoAdded: result.autoAdded.length,
+					autoRemoved: result.autoRemoved.length,
 					autoExcluded: result.autoExcluded.length,
 				});
 				notifyStateChanged('bpscm_checkin');
@@ -344,6 +346,10 @@ SMART HANDLING:
 				if (result.autoAdded.length > 0) {
 					response.autoAddedToSourceControl = result.autoAdded;
 					response.autoAddNote = `${result.autoAdded.length} private file(s) were automatically added to source control before checkin.`;
+				}
+				if (result.autoRemoved.length > 0) {
+					response.autoRemovedDeleted = result.autoRemoved;
+					response.autoRemoveNote = `${result.autoRemoved.length} locally-deleted file(s) were automatically marked for deletion (cm remove) before checkin.`;
 				}
 				if (result.autoExcluded.length > 0) {
 					response.autoExcludedStale = result.autoExcluded;
@@ -1285,7 +1291,7 @@ async function trySetupHybridBackend(workspacePath: string): Promise<boolean> {
 		return false;
 	}
 
-	setBackend(new HybridBackend(new CliBackend(), new RestBackend()));
+	setBackend(createHybridBackend(new CliBackend(), new RestBackend()));
 	return true;
 }
 

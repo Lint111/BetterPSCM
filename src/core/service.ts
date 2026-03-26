@@ -88,7 +88,7 @@ export class PlasticService {
 		all?: boolean;
 		excludePaths?: string[];
 		autoAddPrivate?: boolean;
-	}): Promise<CheckinResult & { autoExcluded: string[]; autoAdded: string[] }> {
+	}): Promise<CheckinResult & { autoExcluded: string[]; autoAdded: string[]; autoRemoved: string[] }> {
 		const { comment, all, excludePaths, autoAddPrivate = true } = options;
 
 		const status = await this.backend.getStatus(true);
@@ -96,11 +96,12 @@ export class PlasticService {
 
 		let paths = this._resolvePaths(status, { all, excludePaths });
 		const autoAdded = autoAddPrivate ? await this._autoAddPrivate(paths, changeMap) : [];
+		const autoRemoved = await this._autoRemoveDeleted(paths, changeMap);
 		const { filtered, autoExcluded } = this._filterCommittable(paths, changeMap, autoAdded);
 		const result = await this._checkinWithRetry(filtered, comment, autoExcluded);
 
 		this.store.clear();
-		return { ...result, autoExcluded, autoAdded };
+		return { ...result, autoExcluded, autoAdded, autoRemoved };
 	}
 
 	private _resolvePaths(
@@ -150,6 +151,27 @@ export class PlasticService {
 			autoAdded.push(...allToAdd);
 		}
 		return autoAdded;
+	}
+
+	/**
+	 * Detect locally-deleted files and run `cm remove` to mark them for deletion.
+	 * Without this, cm checkin fails because it can't read content from missing files.
+	 */
+	private async _autoRemoveDeleted(
+		paths: string[],
+		changeMap: Map<string, string>,
+	): Promise<string[]> {
+		const locallyDeleted = paths.filter(p => {
+			const ct = changeMap.get(p) || changeMap.get(normalizePath(p));
+			return ct === 'locallyDeleted';
+		});
+		if (locallyDeleted.length === 0) return [];
+		await this.backend.removeFromSourceControl(locallyDeleted);
+		// Update changeMap so downstream filters see 'deleted' instead of 'locallyDeleted'
+		for (const p of locallyDeleted) {
+			changeMap.set(p, 'deleted');
+		}
+		return locallyDeleted;
 	}
 
 	private _filterCommittable(

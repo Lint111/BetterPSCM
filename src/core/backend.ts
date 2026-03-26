@@ -98,6 +98,8 @@ export interface PlasticBackend {
 	undoCheckout(paths: string[]): Promise<string[]>;
 	/** Add private (untracked) files to source control so they can be checked in. */
 	addToSourceControl(paths: string[]): Promise<string[]>;
+	/** Mark controlled files for deletion (cm remove). Required for locally-deleted files before checkin. */
+	removeFromSourceControl(paths: string[]): Promise<string[]>;
 	/** Fetch the base (server) revision content of a file for backup purposes. */
 	getBaseRevisionContent(path: string): Promise<Buffer | null>;
 

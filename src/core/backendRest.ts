@@ -654,6 +654,10 @@ export class RestBackend implements PlasticBackend {
 		throw new NotSupportedError('addToSourceControl', this.name);
 	}
 
+	async removeFromSourceControl(_paths: string[]): Promise<string[]> {
+		throw new NotSupportedError('removeFromSourceControl', this.name);
+	}
+
 	// Phase 7 — get base revision content for backup
 	async getBaseRevisionContent(_path: string): Promise<Buffer | null> {
 		throw new NotSupportedError('getBaseRevisionContent', this.name);
