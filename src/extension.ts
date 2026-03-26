@@ -31,7 +31,7 @@ import { detectCm, setCmWorkspaceRoot, isCmAvailable } from './core/cmCli';
 import { setBackend } from './core/backend';
 import { CliBackend } from './core/backendCli';
 import { RestBackend } from './core/backendRest';
-import { HybridBackend } from './core/backendHybrid';
+import { createHybridBackend } from './core/backendHybrid';
 
 const disposables = new DisposableStore();
 
@@ -212,7 +212,7 @@ async function setupProvider(context: vscode.ExtensionContext): Promise<void> {
 	// - REST-only if no CLI (unlikely but possible)
 	// - CLI-only if no REST auth
 	if (hasCreds && cmAvailable) {
-		setBackend(new HybridBackend(new CliBackend(), new RestBackend()));
+		setBackend(createHybridBackend(new CliBackend(), new RestBackend()));
 	} else if (hasCreds) {
 		setBackend(new RestBackend());
 	} else if (cmAvailable) {
