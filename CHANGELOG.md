@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0] - 2026-04-06
+
+### Fixed
+- `bpscm_file_history`: `cm history --format` rejected `{changeset}`/`{type}` — use `{changesetid}` and drop the (unavailable) type field
+- `bpscm_annotate`: parser never matched cm's padded default output — switch to an explicit `--format` with a unit-separator delimiter, correctly populating changeset IDs, authors, and line numbers
+- `bpscm_branches`: was routed to the REST backend and failed with "invalid user api token" for local-only workspaces — route `listBranches` to the CLI backend
+- `bpscm_clean_stale`: unconditionally reverted all CO files, which could wipe legitimate in-progress edits (Unity opens scenes/assets as CO before the filesystem watcher promotes real edits to CH). CO files are now SHA-256 compared against the base revision; only byte-identical files are reverted
+- `bpscm_get_status(detect_stale=true)`: now content-hashes CO files the same way as CH, so `possiblyStale` reflects real content divergence
+
+### Added
+- WSL → Windows path translation at the cm execution boundary. MCP clients running under WSL can now pass `/mnt/c/...` paths to any cm-backed tool (history, annotate, diff, etc.); they are rewritten to `C:\...` before handoff to `cm.exe`.
+
 ## [0.2.0] - 2026-03-25
 
 ### Added
