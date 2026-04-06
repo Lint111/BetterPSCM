@@ -176,7 +176,7 @@ server.registerTool(
 		title: 'Workspace Status',
 		description: `List pending changes in the Plastic SCM workspace. Returns file paths, change types, staged status.
 
-Set detect_stale=true to run cm diff and accurately flag CH files that have no real content changes (stale checkouts). Without this flag, only CO files are flagged as possiblyStale — CH files may also be stale but require a diff to confirm.
+Set detect_stale=true to run SHA-256 content comparison and accurately flag CO and CH files that have no real content changes (stale checkouts). Without this flag, CO files are flagged as possiblyStale (may have real changes) — detect_stale=true confirms via content hash.
 
 TIP: Use detect_stale=true before staging/checkin to avoid commit failures from stale files.`,
 		inputSchema: z.object({
@@ -188,17 +188,17 @@ TIP: Use detect_stale=true before staging/checkin to avoid commit failures from 
 		try {
 			const result = await backend().getStatus(showPrivate ?? true);
 
-			// Build set of stale CH files via SHA-256 hash comparison (if requested)
+			// Build set of stale CO+CH files via SHA-256 hash comparison (if requested)
 			const stalePaths = new Set<string>();
 			if (detect_stale) {
 				const wsRoot = getCmWorkspaceRoot() || '.';
-				const chFiles = result.changes
-					.filter(c => c.changeType === 'changed' && c.dataType === 'File')
+				const filesToCheck = result.changes
+					.filter(c => (c.changeType === 'changed' || c.changeType === 'checkedOut') && c.dataType === 'File')
 					.map(c => c.path);
-				if (chFiles.length > 0) {
+				if (filesToCheck.length > 0) {
 					const BATCH_SIZE = 5;
-					for (let i = 0; i < chFiles.length; i += BATCH_SIZE) {
-						const batch = chFiles.slice(i, i + BATCH_SIZE);
+					for (let i = 0; i < filesToCheck.length; i += BATCH_SIZE) {
+						const batch = filesToCheck.slice(i, i + BATCH_SIZE);
 						const results = await Promise.all(
 							batch.map(async (filePath) => ({
 								filePath,
@@ -213,9 +213,11 @@ TIP: Use detect_stale=true before staging/checkin to avoid commit failures from 
 			}
 
 			const changes = result.changes.map(c => {
-				let possiblyStale = c.changeType === 'checkedOut';
-				if (detect_stale && c.changeType === 'changed' && stalePaths.has(c.path)) {
-					possiblyStale = true;
+				let possiblyStale = false;
+				if (detect_stale && (c.changeType === 'checkedOut' || c.changeType === 'changed')) {
+					possiblyStale = stalePaths.has(c.path);
+				} else if (!detect_stale && c.changeType === 'checkedOut') {
+					possiblyStale = true; // without detect_stale, CO is still flagged as "possibly" stale
 				}
 				return {
 					path: c.path,
@@ -833,9 +835,9 @@ server.registerTool(
 		title: 'Clean Stale Checkouts',
 		description: `Automatically detect and undo stale checkouts — files checked out but with no real content changes.
 
-Detects TWO kinds of stale files:
-- CO (checkedOut) files — always stale by definition
-- CH (changed) files where working copy content is byte-identical to the base revision (stale checkout that cm reports as "changed")
+Detects TWO kinds of stale files via SHA-256 content comparison:
+- CO (checkedOut) files where working copy is byte-identical to base revision
+- CH (changed) files where working copy is byte-identical to base revision (stale checkout that cm reports as "changed")
 
 SAFETY:
 - Never touches added (AD), private (PR), deleted (DE), or moved (MV) files.
@@ -860,10 +862,39 @@ Run this before checkin to avoid commit failures from unchanged files.`,
 
 			const status = await backend().getStatus(false);
 
-			// Phase 1: CO files are always stale (checked out, no content comparison needed)
-			const coFiles = status.changes
-				.filter(c => c.changeType === 'checkedOut')
+			const wsRoot = getCmWorkspaceRoot() || '.';
+
+			// Phase 1: CO files — content-compare because CO only means "checked out",
+			// NOT "unchanged". Unity checks out scenes/assets on open; real edits exist
+			// while Plastic still reports CO (filesystem watcher promotion to CH is delayed).
+			const coFileCandidates = status.changes
+				.filter(c => c.changeType === 'checkedOut' && c.dataType === 'File')
 				.map(c => c.path);
+
+			const staleCO: string[] = [];
+			if (coFileCandidates.length > 0) {
+				audit('bpscm_clean_stale', 'checking_co_files', { count: coFileCandidates.length });
+				const BATCH_SIZE = 5;
+				for (let i = 0; i < coFileCandidates.length; i += BATCH_SIZE) {
+					const batch = coFileCandidates.slice(i, i + BATCH_SIZE);
+					const results = await Promise.all(
+						batch.map(async (filePath) => ({
+							filePath,
+							stale: await isFileStale(filePath, wsRoot),
+						})),
+					);
+					for (const { filePath, stale } of results) {
+						if (stale) {
+							staleCO.push(filePath);
+						}
+					}
+				}
+				audit('bpscm_clean_stale', 'co_analysis', {
+					totalCO: coFileCandidates.length,
+					staleCO: staleCO.length,
+					trulyChangedCO: coFileCandidates.length - staleCO.length,
+				});
+			}
 
 			// Phase 2: CH files may be stale if content matches base revision.
 			// This happens when an agent checks out a file, makes a no-op edit (or
@@ -874,12 +905,9 @@ Run this before checkin to avoid commit failures from unchanged files.`,
 
 			const staleCH: string[] = [];
 			const trulyChangedCount = { value: 0 };
-			const wsRoot = getCmWorkspaceRoot() || '.';
 
 			if (chFiles.length > 0) {
 				audit('bpscm_clean_stale', 'checking_ch_files', { count: chFiles.length });
-				// Compare each CH file's SHA-256 hash against base revision.
-				// Uses cm cat streamed to temp file (raw bytes, no encoding corruption).
 				const BATCH_SIZE = 5;
 				for (let i = 0; i < chFiles.length; i += BATCH_SIZE) {
 					const batch = chFiles.slice(i, i + BATCH_SIZE);
@@ -904,7 +932,7 @@ Run this before checkin to avoid commit failures from unchanged files.`,
 				});
 			}
 
-			const staleFiles = [...coFiles, ...staleCH];
+			const staleFiles = [...staleCO, ...staleCH];
 
 			// Report what we're NOT touching for transparency
 			const addedFiles = status.changes.filter(c => c.changeType === 'added').length;
@@ -920,18 +948,21 @@ Run this before checkin to avoid commit failures from unchanged files.`,
 			}
 
 			if (isDryRun) {
-				audit('bpscm_clean_stale', 'dry_run', { staleCount: staleFiles.length, coCount: coFiles.length, staleCHCount: staleCH.length });
+				audit('bpscm_clean_stale', 'dry_run', { staleCount: staleFiles.length, staleCOCount: staleCO.length, staleCHCount: staleCH.length });
 				return jsonResult({
 					staleFiles,
 					count: staleFiles.length,
 					breakdown: {
-						co: coFiles.length,
+						staleCO: staleCO.length,
+						staleCOPaths: staleCO,
 						staleCH: staleCH.length,
 						staleCHPaths: staleCH,
+						skippedCO: coFileCandidates.length - staleCO.length,
 					},
 					skipped: { added: addedFiles, trulyChanged: changedFiles },
-					message: `DRY RUN (default) — ${coFiles.length} CO + ${staleCH.length} stale CH file(s) would be reverted. ` +
-						`Set dry_run=false to execute. AD files and truly changed CH files are never touched.`,
+					message: `DRY RUN (default) — ${staleCO.length} stale CO + ${staleCH.length} stale CH file(s) would be reverted. ` +
+						`${coFileCandidates.length - staleCO.length} CO file(s) with real changes preserved. ` +
+						`Set dry_run=false to execute.`,
 				});
 			}
 
@@ -957,7 +988,7 @@ Run this before checkin to avoid commit failures from unchanged files.`,
 					workspaceRoot: wsRoot,
 					files: staleFiles.map(p => ({
 						path: p,
-						changeType: coFiles.includes(p) ? 'checkedOut' : 'changed',
+						changeType: staleCO.includes(p) ? 'checkedOut' : 'changed',
 					})),
 					getBaseContent: async (filePath) => backend().getBaseRevisionContent(filePath),
 					backupBaseDir: process.env.PLASTIC_BACKUP_DIR,
@@ -979,7 +1010,7 @@ Run this before checkin to avoid commit failures from unchanged files.`,
 
 			audit('bpscm_clean_stale', 'completed', {
 				revertedCount: reverted.length,
-				coReverted: coFiles.length,
+				staleCOReverted: staleCO.length,
 				staleCHReverted: staleCH.length,
 				criticalCount: criticalReverted.length,
 				addedSkipped: addedFiles,
@@ -997,9 +1028,10 @@ Run this before checkin to avoid commit failures from unchanged files.`,
 			const result: Record<string, unknown> = {
 				revertedFiles: reverted.length,
 				paths: reverted,
-				breakdown: { co: coFiles.length, staleCH: staleCH.length },
-				skipped: { added: addedFiles, trulyChanged: changedFiles },
-				message: `Reverted ${reverted.length} stale file(s) (${coFiles.length} CO + ${staleCH.length} stale CH). ` +
+				breakdown: { staleCO: staleCO.length, staleCH: staleCH.length },
+				skipped: { added: addedFiles, trulyChanged: changedFiles, unchangedCO: coFileCandidates.length - staleCO.length },
+				message: `Reverted ${reverted.length} stale file(s) (${staleCO.length} stale CO + ${staleCH.length} stale CH). ` +
+					`${coFileCandidates.length - staleCO.length} CO file(s) with real changes preserved. ` +
 					`${addedFiles} added and ${changedFiles} truly changed file(s) left untouched.`,
 			};
 			if (criticalReverted.length > 0) {
