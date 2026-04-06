@@ -756,7 +756,7 @@ export class CliBackend implements PlasticBackend {
 	// Phase 5 — File history + annotate
 	async getFileHistory(path: string): Promise<FileHistoryEntry[]> {
 		const result = await execCm([
-			'history', path, '--format={changesetid}#{branch}#{owner}#{date}#{comment}',
+			'history', path, '--format={changesetid}#{branch}#{owner}#{date}#{comment}#{type}',
 			'--dateformat=yyyy-MM-ddTHH:mm:ssK',
 		]);
 		if (result.exitCode !== 0) {
@@ -1198,6 +1198,12 @@ function parseHistoryLine(line: string): FileHistoryEntry | undefined {
 	if (parts.length < 5) return undefined;
 	const csId = parseInt(parts[0], 10);
 	if (isNaN(csId)) return undefined;
+	const rawType = (parts[5] || '').trim().toLowerCase();
+	const type: FileHistoryEntry['type'] =
+		rawType.includes('add') ? 'added'
+		: rawType.includes('del') || rawType.includes('remove') ? 'deleted'
+		: rawType.includes('mov') || rawType.includes('rename') ? 'moved'
+		: 'changed';
 	return {
 		revisionId: 0,
 		changesetId: csId,
@@ -1205,7 +1211,7 @@ function parseHistoryLine(line: string): FileHistoryEntry | undefined {
 		owner: parts[2],
 		date: parts[3],
 		comment: parts[4] || undefined,
-		type: 'changed',
+		type,
 	};
 }
 

@@ -184,9 +184,14 @@ describe('CLI output parsing edge cases', () => {
 	});
 
 	describe('annotate parsing', () => {
+		// Real `getBlame` invokes cm with an explicit `{line}\u001f{changeset}\u001f…`
+		// format; the parser is built around that delimiter, so fixtures must use it.
+		const SEP = '\u001f';
 		it('parses standard annotate format', async () => {
 			mockExecCm.mockResolvedValue({
-				stdout: 'cs:42 alice 2026-01-01 | const x = 1;\ncs:43 bob 2026-01-02 | const y = 2;\n',
+				stdout:
+					`1${SEP}42${SEP}alice${SEP}2026-01-01${SEP}const x = 1;\n` +
+					`2${SEP}43${SEP}bob${SEP}2026-01-02${SEP}const y = 2;\n`,
 				stderr: '', exitCode: 0,
 			});
 
@@ -199,17 +204,21 @@ describe('CLI output parsing edge cases', () => {
 		});
 
 		it('handles lines that do not match annotate format', async () => {
+			// Non-matching leading line has no SEP — the parser should attach it
+			// as a continuation of the first real entry (embedded-newline case).
 			mockExecCm.mockResolvedValue({
-				stdout: 'some random line\ncs:42 alice 2026-01-01 | code\n',
+				stdout:
+					`1${SEP}42${SEP}alice${SEP}2026-01-01${SEP}first line\n` +
+					`some continuation\n` +
+					`2${SEP}43${SEP}bob${SEP}2026-01-02${SEP}code\n`,
 				stderr: '', exitCode: 0,
 			});
 
 			const blame = await backend.getBlame('/src/foo.ts');
 			expect(blame).toHaveLength(2);
-			// Non-matching line gets fallback entry with empty metadata
-			expect(blame[0].changesetId).toBe(0);
-			expect(blame[0].content).toBe('some random line');
-			expect(blame[1].changesetId).toBe(42);
+			expect(blame[0].changesetId).toBe(42);
+			expect(blame[0].content).toBe('first line\nsome continuation');
+			expect(blame[1].changesetId).toBe(43);
 		});
 	});
 
@@ -231,8 +240,9 @@ describe('CLI output parsing edge cases', () => {
 
 	describe('file history parsing', () => {
 		it('parses history lines', async () => {
+			// Format: {changesetid}#{branch}#{owner}#{date}#{comment}#{type}
 			mockExecCm.mockResolvedValue({
-				stdout: '42#/main#alice#2026-01-01#initial#added\n43#/main#bob#2026-01-02#update#changed\n',
+				stdout: '42#/main#alice#2026-01-01#initial#add\n43#/main#bob#2026-01-02#update#changed\n',
 				stderr: '', exitCode: 0,
 			});
 
