@@ -606,7 +606,7 @@ export class CliBackend implements PlasticBackend {
 	// Phase 5 — File history + annotate
 	async getFileHistory(path: string): Promise<FileHistoryEntry[]> {
 		const result = await execCm([
-			'history', path, '--format={changeset}#{branch}#{owner}#{date}#{comment}#{type}',
+			'history', path, '--format={changesetid}#{branch}#{owner}#{date}#{comment}',
 		]);
 		if (result.exitCode !== 0) {
 			throw new Error(`cm history failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
@@ -616,7 +616,13 @@ export class CliBackend implements PlasticBackend {
 	}
 
 	async getBlame(path: string): Promise<BlameLine[]> {
-		const result = await execCm(['annotate', path]);
+		// Use an explicit format so we get a reliable, delimited output to parse.
+		// Default cm annotate output has variable whitespace padding and embeds the
+		// changeset inside `br:/path#NNN`, which is fragile to parse.
+		const result = await execCm([
+			'annotate', path,
+			'--format={line}\u001f{changeset}\u001f{owner}\u001f{date}\u001f{content}',
+		]);
 		if (result.exitCode !== 0) {
 			throw new Error(`cm annotate failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
 		}
@@ -1012,7 +1018,6 @@ function parseHistoryLine(line: string): FileHistoryEntry | undefined {
 	if (parts.length < 5) return undefined;
 	const csId = parseInt(parts[0], 10);
 	if (isNaN(csId)) return undefined;
-	const typeStr = (parts[5] || '').toLowerCase();
 	return {
 		revisionId: 0,
 		changesetId: csId,
@@ -1020,10 +1025,7 @@ function parseHistoryLine(line: string): FileHistoryEntry | undefined {
 		owner: parts[2],
 		date: parts[3],
 		comment: parts[4] || undefined,
-		type: typeStr.includes('add') ? 'added'
-			: typeStr.includes('del') ? 'deleted'
-			: typeStr.includes('mov') ? 'moved'
-			: 'changed',
+		type: 'changed',
 	};
 }
 
@@ -1169,32 +1171,31 @@ export function extractReviewersFromComments(xml: string): ReviewerInfo[] {
 }
 
 function parseAnnotateOutput(stdout: string): BlameLine[] {
-	const lines = stdout.split(/\r?\n/);
+	// Expected format (see getBlame): {line}\u001f{changeset}\u001f{owner}\u001f{date}\u001f{content}
+	// Content may itself contain arbitrary characters but not \u001f, and lines are
+	// separated by \r?\n. A source line that contains an embedded newline would be
+	// split by cm into multiple output lines — treat any line that doesn't start
+	// with "<number>\u001f" as a continuation of the previous blame entry.
+	const SEP = '\u001f';
+	const raw = stdout.split(/\r?\n/);
 	const result: BlameLine[] = [];
-	for (let i = 0; i < lines.length; i++) {
-		const line = lines[i];
-		if (!line) continue;
-		// cm annotate format: "cs:N owner date | content"
-		const match = line.match(/^cs:(\d+)\s+(\S+)\s+(\S+)\s+\|\s?(.*)$/);
-		if (match) {
+	// Drop trailing blank lines (cm typically emits a final newline).
+	while (raw.length > 0 && raw[raw.length - 1] === '') raw.pop();
+	for (const line of raw) {
+		if (!line && result.length === 0) continue;
+		const parts = line.split(SEP);
+		if (parts.length >= 5 && /^\d+$/.test(parts[0])) {
 			result.push({
-				lineNumber: i + 1,
-				changesetId: parseInt(match[1], 10),
-				author: match[2],
-				date: match[3],
-				content: match[4],
+				lineNumber: parseInt(parts[0], 10),
+				changesetId: parseInt(parts[1], 10) || 0,
+				author: parts[2],
+				date: parts[3],
+				content: parts.slice(4).join(SEP),
 				revisionId: 0,
 			});
-		} else {
-			// Fallback: just store the line content
-			result.push({
-				lineNumber: i + 1,
-				changesetId: 0,
-				author: '',
-				date: '',
-				content: line,
-				revisionId: 0,
-			});
+		} else if (result.length > 0) {
+			// Continuation of previous line's content (embedded newline).
+			result[result.length - 1].content += '\n' + line;
 		}
 	}
 	return result;

@@ -78,7 +78,26 @@ export async function execCm(args: string[], maxBuffer?: number): Promise<CmResu
 	if (!cmPath) {
 		throw new Error('cm CLI not available');
 	}
-	return execCmRaw(cmPath, args, maxBuffer);
+	return execCmRaw(cmPath, args.map(toCmArg), maxBuffer);
+}
+
+/**
+ * Translate a single cm CLI argument.
+ *
+ * When cm.exe runs on Windows but the MCP client (e.g. Claude Code under WSL)
+ * passes WSL-style paths like "/mnt/c/Foo/bar.cs", cm rejects them because the
+ * Windows binary cannot resolve `/mnt/c` to a workspace. Rewrite those to
+ * Windows form ("C:\Foo\bar.cs") before handing off to cm. Non-path args and
+ * flags are returned untouched.
+ */
+export function toCmArg(arg: string): string {
+	if (process.platform !== 'win32') return arg;
+	// Match "/mnt/<letter>" or "/mnt/<letter>/..."
+	const m = /^\/mnt\/([a-zA-Z])(\/.*)?$/.exec(arg);
+	if (!m) return arg;
+	const drive = m[1].toUpperCase();
+	const rest = (m[2] ?? '').replace(/\//g, '\\');
+	return `${drive}:${rest}`;
 }
 
 interface CmResult {
@@ -98,7 +117,7 @@ export async function execCmToFile(args: string[]): Promise<string | undefined> 
 	}
 	const tempPath = join(tmpdir(), `plastic-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`);
 	return new Promise((resolve) => {
-		const proc = spawn(cmPath!, args, {
+		const proc = spawn(cmPath!, args.map(toCmArg), {
 			cwd: workspaceRoot,
 			windowsHide: true,
 			stdio: ['ignore', 'pipe', 'pipe'],
