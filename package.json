@@ -422,6 +422,11 @@
           "type": "boolean",
           "default": false,
           "description": "Enable MCP server for AI agent integration"
+        },
+        "bpscm.graph.followActiveFile": {
+          "type": "boolean",
+          "default": true,
+          "description": "When enabled, opening a file (e.g. from the Search view) automatically filters the history graph to changesets that touched that file."
         }
       }
     }

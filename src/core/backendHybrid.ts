@@ -10,7 +10,7 @@ const HYBRID_CLI_METHODS = new Set<string>([
 	'switchBranch', 'updateWorkspace', 'undoCheckout', 'addToSourceControl', 'removeFromSourceControl',
 	'getBaseRevisionContent', 'getBlame', 'getFileHistory',
 	'resolveRevisionPaths', 'checkMergeAllowed', 'executeMerge',
-	'listBranches',
+	'listBranches', 'listMerges', 'findChangesetsTouchingPath',
 ]);
 
 /** Methods where CLI is tried first, falling back to REST on failure. */

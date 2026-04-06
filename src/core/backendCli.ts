@@ -26,6 +26,7 @@ import type {
 	BlameLine,
 	MergeReport,
 	MergeResult,
+	MergeLink,
 	LockRuleInfo,
 	LockInfo,
 } from './types';
@@ -271,6 +272,7 @@ export class CliBackend implements PlasticBackend {
 		const result = await execCm([
 			'find', 'branch',
 			'--format={name}#{id}#{owner}#{date}#{comment}',
+			'--dateformat=yyyy-MM-ddTHH:mm:ssK',
 			'--nototal',
 		]);
 		if (result.exitCode !== 0) {
@@ -324,6 +326,10 @@ export class CliBackend implements PlasticBackend {
 			'find', 'changeset',
 			query,
 			'--format={changesetid}#{branch}#{owner}#{date}#{comment}#{parent}',
+			// Force ISO-8601 dates. Without this, cm uses the OS locale format
+			// (e.g. dd/MM/yyyy on non-US systems), which JS `new Date()` then
+			// mis-parses as MM/dd — producing future dates and negative "Nd ago".
+			'--dateformat=yyyy-MM-ddTHH:mm:ssK',
 			'--nototal',
 		];
 		const result = await execCm(args);
@@ -339,12 +345,36 @@ export class CliBackend implements PlasticBackend {
 		return lines.map(parseChangesetLine).filter((c): c is ChangesetInfo => c !== undefined);
 	}
 
+	async listMerges(): Promise<MergeLink[]> {
+		// `cm find merge` returns one row per merge link with the src/dst changeset
+		// IDs (user-facing numbers, same scale as {changesetid}).
+		const result = await execCm([
+			'find', 'merge',
+			'--format={srcchangeset}#{dstchangeset}',
+			'--nototal',
+		]);
+		if (result.exitCode !== 0) {
+			throw new Error(`cm find merge failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
+		}
+		const lines = result.stdout.split(/\r?\n/).filter(l => l.length > 0);
+		const out: MergeLink[] = [];
+		for (const line of lines) {
+			const parts = line.split('#');
+			if (parts.length < 2) continue;
+			const src = parseInt(parts[0], 10);
+			const dst = parseInt(parts[1], 10);
+			if (Number.isFinite(src) && Number.isFinite(dst)) out.push({ src, dst });
+		}
+		return out;
+	}
+
 	private async listChangesetsWithoutParent(branchName?: string, limit?: number): Promise<ChangesetInfo[]> {
 		const query = buildChangesetQuery(branchName, limit);
 		const args = [
 			'find', 'changeset',
 			query,
 			'--format={changesetid}#{branch}#{owner}#{date}#{comment}',
+			'--dateformat=yyyy-MM-ddTHH:mm:ssK',
 			'--nototal',
 		];
 		const result = await execCm(args);
@@ -399,6 +429,7 @@ export class CliBackend implements PlasticBackend {
 			const items = parseDiffOutput(result.stdout);
 			if (items.length > 0) {
 				log(`[getChangesetDiff] parsed ${items.length} items from cm diff`);
+				await this.tagDirectories(changesetId, items);
 				return items;
 			}
 			log(`[getChangesetDiff] cm diff output parsed to 0 items, trying fallbacks`);
@@ -414,6 +445,7 @@ export class CliBackend implements PlasticBackend {
 			const items = parseDiffOutput(result2.stdout);
 			if (items.length > 0) {
 				log(`[getChangesetDiff] parsed ${items.length} items from cm diff (alt flags)`);
+				await this.tagDirectories(changesetId, items);
 				return items;
 			}
 		}
@@ -421,6 +453,121 @@ export class CliBackend implements PlasticBackend {
 		// Fallback 2: try cm find revision for the changeset
 		log(`[getChangesetDiff] trying cm find revision fallback`);
 		return this.getChangesetRevisions(changesetId);
+	}
+
+	/**
+	 * Enrich diff items with isDirectory flags by cross-referencing
+	 * `cm find revision` (which reports the revision type: dir/txt/bin).
+	 * Used so the UI can render folder icons and skip click-to-diff on folders.
+	 */
+	private async tagDirectories(changesetId: number, items: ChangesetDiffItem[]): Promise<void> {
+		try {
+			const result = await execCm([
+				'find', 'revision',
+				`where changeset=${changesetId}`,
+				'--format={path}#{type}',
+				'--nototal',
+			]);
+			if (result.exitCode !== 0) return;
+			const dirPaths = new Set<string>();
+			for (const line of result.stdout.split(/\r?\n/)) {
+				const parts = line.split('#');
+				if (parts.length < 2) continue;
+				const typeStr = parts[1].trim().toLowerCase();
+				if (typeStr === 'dir' || typeStr.includes('directory')) {
+					dirPaths.add(normalizePath(parts[0].trim()));
+				}
+			}
+			if (dirPaths.size === 0) return;
+			for (const item of items) {
+				const p = normalizePath(item.path);
+				if (dirPaths.has(p) || dirPaths.has('/' + p) || dirPaths.has(p.replace(/^\//, ''))) {
+					item.isDirectory = true;
+				}
+			}
+		} catch (err) {
+			log(`[tagDirectories] failed: ${err instanceof Error ? err.message : err}`);
+		}
+	}
+
+	/**
+	 * Find all changesets that touched the given path(s), returning full
+	 * ChangesetInfo entries (not just IDs).
+	 *
+	 * Uses `cm find revision where item='item:<relPath>'` — a single query
+	 * that returns both the changeset data and the full set of revisions,
+	 * across every branch in the repo. Previous attempts went through
+	 * `cm history` → `cm find changeset where changesetid=N`, but the
+	 * latter returns nothing for some IDs that `cm history` surfaces (likely
+	 * changesets on attic/merged-away branches), silently dropping matches.
+	 *
+	 * Paths may be absolute workspace paths or already-workspace-relative;
+	 * they're converted to `item:<forward/slash/rel>` objectspecs here.
+	 */
+	async findChangesetsTouchingPath(pathOrPaths: string | string[]): Promise<ChangesetInfo[]> {
+		const raw = (Array.isArray(pathOrPaths) ? pathOrPaths : [pathOrPaths])
+			.map(p => p.trim())
+			.filter(p => p.length > 0);
+		if (raw.length === 0) return [];
+
+		const wsRoot = getCmWorkspaceRoot();
+		const relPaths = raw.map(p => this.toWorkspaceRelativeObjectspec(p, wsRoot)).filter((p): p is string => !!p);
+		if (relPaths.length === 0) {
+			log(`[findChangesetsTouchingPath] no paths could be resolved relative to workspace root`);
+			return [];
+		}
+
+		// Escape single quotes in paths for the cm query literal.
+		const orClause = relPaths
+			.map(rel => `item='item:${rel.replace(/'/g, "''")}'`)
+			.join(' or ');
+		const where = `where (${orClause})`;
+
+		const args = [
+			'find', 'revision',
+			where,
+			// Record-start marker so multi-line/#-bearing comments can't corrupt parsing.
+			'--format=@@CS@@{changeset}#{branch}#{owner}#{date}#{parent}#{comment}',
+			'--dateformat=yyyy-MM-ddTHH:mm:ssK',
+			'--nototal',
+		];
+		const result = await execCm(args);
+		if (result.exitCode !== 0) {
+			log(`[findChangesetsTouchingPath] cm find revision failed (exit ${result.exitCode}): ${result.stderr.substring(0, 300)}`);
+			return [];
+		}
+
+		// Dedupe by changeset id — revision query returns one row per file,
+		// and the same changeset may have touched multiple matching paths.
+		const byId = new Map<number, ChangesetInfo>();
+		const records = result.stdout.split('@@CS@@').slice(1);
+		for (const rec of records) {
+			const cs = parseChangesetRecord(rec);
+			if (cs && !byId.has(cs.id)) byId.set(cs.id, cs);
+		}
+		return Array.from(byId.values()).sort((a, b) => b.id - a.id);
+	}
+
+	/**
+	 * Convert an absolute or workspace-relative path into the forward-slash
+	 * relative form used by Plastic `item:` objectspecs. Returns undefined
+	 * if the path can't be resolved (e.g. outside the workspace).
+	 */
+	private toWorkspaceRelativeObjectspec(path: string, wsRoot?: string): string | undefined {
+		let rel = path.replace(/\\/g, '/');
+		if (wsRoot) {
+			const rootNorm = wsRoot.replace(/\\/g, '/').replace(/\/$/, '');
+			// Case-insensitive prefix strip (Windows paths).
+			if (rel.toLowerCase().startsWith(rootNorm.toLowerCase() + '/')) {
+				rel = rel.substring(rootNorm.length + 1);
+			} else if (rel.toLowerCase() === rootNorm.toLowerCase()) {
+				rel = '';
+			}
+		}
+		// Strip any remaining drive letter / leading slash.
+		rel = rel.replace(/^[a-zA-Z]:\//, '').replace(/^\/+/, '');
+		if (rel.length === 0) return undefined;
+		return rel;
 	}
 
 	private async getChangesetRevisions(changesetId: number): Promise<ChangesetDiffItem[]> {
@@ -451,6 +598,7 @@ export class CliBackend implements PlasticBackend {
 			'find', 'review',
 			...(whereClause ? [whereClause] : []),
 			'--format={id}#{title}#{status}#{owner}#{date}#{targettype}#{target}#{assignee}',
+			'--dateformat=yyyy-MM-ddTHH:mm:ssK',
 			'--nototal',
 		];
 		const result = await execCm(args);
@@ -465,6 +613,7 @@ export class CliBackend implements PlasticBackend {
 			'find', 'review',
 			`where id=${id}`,
 			'--format={id}#{title}#{status}#{owner}#{date}#{targettype}#{target}#{assignee}',
+			'--dateformat=yyyy-MM-ddTHH:mm:ssK',
 			'--nototal',
 		]);
 		if (result.exitCode !== 0) {
@@ -562,6 +711,7 @@ export class CliBackend implements PlasticBackend {
 		const result = await execCm([
 			'find', 'label',
 			'--format={name}#{id}#{owner}#{date}#{changeset}#{comment}',
+			'--dateformat=yyyy-MM-ddTHH:mm:ssK',
 			'--nototal',
 		]);
 		if (result.exitCode !== 0) {
@@ -607,6 +757,7 @@ export class CliBackend implements PlasticBackend {
 	async getFileHistory(path: string): Promise<FileHistoryEntry[]> {
 		const result = await execCm([
 			'history', path, '--format={changesetid}#{branch}#{owner}#{date}#{comment}',
+			'--dateformat=yyyy-MM-ddTHH:mm:ssK',
 		]);
 		if (result.exitCode !== 0) {
 			throw new Error(`cm history failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
@@ -622,6 +773,7 @@ export class CliBackend implements PlasticBackend {
 		const result = await execCm([
 			'annotate', path,
 			'--format={line}\u001f{changeset}\u001f{owner}\u001f{date}\u001f{content}',
+			'--dateformat=yyyy-MM-ddTHH:mm:ssK',
 		]);
 		if (result.exitCode !== 0) {
 			throw new Error(`cm annotate failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
@@ -835,7 +987,12 @@ function parseRevisionLine(line: string): ChangesetDiffItem | undefined {
 		: typeStr.includes('del') ? 'deleted'
 		: typeStr.includes('mov') ? 'moved'
 		: 'changed';
-	return { path, type };
+	// cm find revision {type} returns 'dir' for directories, 'txt'/'bin' for files.
+	// Only set isDirectory when true — keeps the object shape compatible with
+	// callers that don't care about directory tagging.
+	const item: ChangesetDiffItem = { path, type };
+	if (typeStr === 'dir' || typeStr.includes('dir')) item.isDirectory = true;
+	return item;
 }
 
 function buildChangesetQuery(branchName?: string, limit?: number): string {
@@ -848,6 +1005,29 @@ function buildChangesetQuery(branchName?: string, limit?: number): string {
 		parts.push(`limit ${limit}`);
 	}
 	return parts.join(' ');
+}
+
+/**
+ * Parse a record in the form `{id}#{branch}#{owner}#{date}#{parent}#{comment}`
+ * where `comment` is the tail (may contain `#` and newlines). Used by
+ * `findChangesetsTouchingPath` which prepends a `@@CS@@` marker so records can be
+ * split deterministically even when comments span multiple lines.
+ */
+function parseChangesetRecord(rec: string): ChangesetInfo | undefined {
+	const parts = rec.split('#');
+	if (parts.length < 6) return undefined;
+	const id = parseInt(parts[0], 10);
+	if (!Number.isFinite(id)) return undefined;
+	const parent = parseInt(parts[4], 10) || 0;
+	const commentRaw = parts.slice(5).join('#').replace(/\r?\n$/, '');
+	return {
+		id,
+		branch: parts[1],
+		owner: parts[2],
+		date: parts[3],
+		comment: commentRaw || undefined,
+		parent,
+	};
 }
 
 function parseChangesetLine(line: string): ChangesetInfo | undefined {

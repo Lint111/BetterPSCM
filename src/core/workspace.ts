@@ -16,7 +16,7 @@ import type {
 	UpdateResult, CodeReviewInfo, ReviewCommentInfo,
 	CreateReviewParams, CreateCommentParams, ReviewStatus,
 	LabelInfo, CreateLabelParams, FileHistoryEntry, BlameLine,
-	MergeReport, MergeResult,
+	MergeReport, MergeResult, MergeLink,
 	LockRuleInfo,
 } from './types';
 
@@ -123,6 +123,22 @@ export async function updateWorkspace(): Promise<UpdateResult> {
  */
 export async function listChangesets(branchName?: string, limit?: number): Promise<ChangesetInfo[]> {
 	return getBackend().listChangesets(branchName, limit);
+}
+
+/**
+ * List merge links across the repository (src → dst changeset pairs).
+ * Used by the history graph to render merge edges in addition to parent edges.
+ */
+export async function listMerges(): Promise<MergeLink[]> {
+	return getBackend().listMerges();
+}
+
+/**
+ * Find changesets that touched any path matching the given substring pattern.
+ * Used by the graph view's file-scoped history filter.
+ */
+export async function findChangesetsTouchingPath(pathOrPaths: string | string[]): Promise<ChangesetInfo[]> {
+	return getBackend().findChangesetsTouchingPath(pathOrPaths);
 }
 
 /**

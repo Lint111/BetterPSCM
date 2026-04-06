@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import type { NormalizedChange } from '../core/types';
-import { getChangeDecoration } from './decorations';
+import { getChangeDecoration, getFolderDecoration } from './decorations';
+import { isFolderEntry, shouldOpenDiff } from './entryKind';
 import { COMMANDS } from '../constants';
 
 /**
@@ -13,17 +14,22 @@ export function createResourceState(
 	const resourceUri = vscode.Uri.joinPath(workspaceRoot, change.path);
 
 	const isDeleted = change.changeType === 'deleted' || change.changeType === 'locallyDeleted';
+	const isDirectory = isFolderEntry(change);
 
 	return {
 		resourceUri,
-		decorations: getChangeDecoration(change.changeType),
-		command: isDeleted
-			? undefined
-			: {
+		decorations: isDirectory
+			? getFolderDecoration(change.changeType)
+			: getChangeDecoration(change.changeType),
+		// Click rule is centralised in `shouldOpenDiff` so both the live SCM
+		// panel and the historic changeset webview apply the same logic.
+		command: !isDeleted && shouldOpenDiff(change)
+			? {
 				title: 'Open Changes',
 				command: COMMANDS.openChange,
 				arguments: [resourceUri, change],
-			},
-		contextValue: change.changeType,
+			}
+			: undefined,
+		contextValue: isDirectory ? `${change.changeType}:folder` : change.changeType,
 	};
 }

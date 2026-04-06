@@ -6,7 +6,7 @@ import type {
 	ChangesetDiffItem, UpdateResult, CodeReviewInfo, ReviewCommentInfo,
 	ReviewerInfo, CreateReviewParams, CreateCommentParams, ReviewStatus,
 	LabelInfo, CreateLabelParams, FileHistoryEntry, BlameLine,
-	MergeReport, MergeResult,
+	MergeReport, MergeResult, MergeLink,
 	LockRuleInfo, LockInfo,
 } from './types';
 import type { CheckInRequest } from './types';
@@ -588,6 +588,16 @@ export class RestBackend implements PlasticBackend {
 
 		if (error) throw error;
 		return ((data as any) ?? []).map(mapHistoryEntry);
+	}
+
+	async listMerges(): Promise<MergeLink[]> {
+		// No REST endpoint for merge links; hybrid backend routes this to CLI.
+		throw new NotSupportedError('listMerges', this.name);
+	}
+
+	async findChangesetsTouchingPath(_pathOrPaths: string | string[]): Promise<ChangesetInfo[]> {
+		// No REST endpoint; hybrid backend routes to CLI.
+		throw new NotSupportedError('findChangesetsTouchingPath', this.name);
 	}
 
 	async getBlame(_path: string): Promise<BlameLine[]> {

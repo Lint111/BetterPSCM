@@ -4,7 +4,7 @@ import type {
 	UpdateResult, CodeReviewInfo, ReviewCommentInfo, ReviewerInfo,
 	CreateReviewParams, CreateCommentParams, ReviewStatus,
 	LabelInfo, CreateLabelParams, FileHistoryEntry, BlameLine,
-	MergeReport, MergeResult,
+	MergeReport, MergeResult, MergeLink,
 	LockRuleInfo, LockInfo,
 } from './types';
 
@@ -41,8 +41,21 @@ export interface PlasticBackend {
 
 	/** List changesets, optionally filtered by branch and limited in count. */
 	listChangesets(branchName?: string, limit?: number): Promise<ChangesetInfo[]>;
+	/**
+	 * List merge links (src → dst changeset) across the repository. Used by the
+	 * history graph to draw merge edges in addition to parent edges.
+	 */
+	listMerges(): Promise<MergeLink[]>;
 	/** Get the list of files changed between a changeset and its parent. */
 	getChangesetDiff(changesetId: number, parentId: number): Promise<ChangesetDiffItem[]>;
+	/**
+	 * Find changeset IDs that touched any path matching the given pattern.
+	 * Pattern is a substring matched case-insensitively against the full
+	 * serverpath of each revision (e.g. "AttackSystem" matches both
+	 * "/Scripts/AttackSystem.cs" and "/Systems/AttackSystem/Config.cs").
+	 * Used by the graph view's file-scoped history filter.
+	 */
+	findChangesetsTouchingPath(pathOrPaths: string | string[]): Promise<ChangesetInfo[]>;
 	/** Update the workspace to the latest server state. */
 	updateWorkspace(): Promise<UpdateResult>;
 

@@ -92,6 +92,8 @@ export interface ChangesetInfo {
 export interface ChangesetDiffItem {
 	path: string;
 	type: 'added' | 'changed' | 'deleted' | 'moved';
+	/** True if the entry is a directory — UI should skip diff click and show folder icon. */
+	isDirectory?: boolean;
 }
 
 /** Result of a workspace update operation. */
@@ -229,6 +231,16 @@ export interface MergeReport {
 export interface MergeResult {
 	changesetId: number;
 	conflicts: string[];
+}
+
+/**
+ * A single merge link between two changesets, as reported by `cm find merge`.
+ * `src` is the tip changeset that was merged in; `dst` is the changeset
+ * created on the destination branch as a result of the merge.
+ */
+export interface MergeLink {
+	src: number;
+	dst: number;
 }
 
 // ── Phase 5: Locks ──────────────────────────────────────────────────
