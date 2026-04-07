@@ -3,6 +3,7 @@ import { createReadStream } from 'fs';
 import { unlink } from 'fs/promises';
 import { join } from 'path';
 import { execCmToFile } from './cmCli';
+import { log } from '../util/logger';
 import type { NormalizedChange } from './types';
 
 /** Batch size for parallel SHA-256 comparisons. Balances throughput against cm CLI load. */
@@ -18,7 +19,12 @@ export function hashFile(filePath: string): Promise<string> {
 		const stream = createReadStream(filePath);
 		stream.on('data', (chunk) => hash.update(chunk));
 		stream.on('end', () => resolve(hash.digest('hex')));
-		stream.on('error', reject);
+		stream.on('error', (err) => {
+			// Guarantee file descriptor release on any error path. Node normally
+			// auto-destroys on error, but being explicit is cheap insurance.
+			stream.destroy();
+			reject(err);
+		});
 	});
 }
 
@@ -27,7 +33,8 @@ export function hashFile(filePath: string): Promise<string> {
  * the base revision fetched via `cm cat` (streamed to temp file for raw bytes).
  *
  * Returns true only when hashes match. Any error (missing base, cm failure)
- * returns false — the safe default is "assume changed".
+ * returns false — the safe default is "assume changed". Errors are logged
+ * so genuine bugs remain visible in the output channel.
  */
 export async function isFileStale(filePath: string, wsRoot: string): Promise<boolean> {
 	try {
@@ -43,7 +50,8 @@ export async function isFileStale(filePath: string, wsRoot: string): Promise<boo
 		} finally {
 			unlink(baseTempPath).catch(() => {});
 		}
-	} catch {
+	} catch (err) {
+		log(`[isFileStale] "${filePath}" → assuming changed after error: ${err instanceof Error ? err.message : String(err)}`);
 		return false;
 	}
 }
