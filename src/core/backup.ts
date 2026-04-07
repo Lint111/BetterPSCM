@@ -1,7 +1,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
-import { UNITY_CRITICAL_EXTENSIONS } from '../core/safety';
+import { UNITY_CRITICAL_EXTENSIONS } from './safety';
 
 // ── Types ──────────────────────────────────────────────────────────────
 

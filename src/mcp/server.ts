@@ -18,11 +18,12 @@ import { setCmWorkspaceRoot, detectCm, isCmAvailable, getCmWorkspaceRoot } from 
 import { CliBackend } from '../core/backendCli';
 import { setBackend, getBackend } from '../core/backend';
 import type { PlasticBackend } from '../core/backend';
-import { createBackup, listBackups, getBackupManifest, restoreBackup } from './backup';
+import { listBackups, getBackupManifest, restoreBackup } from '../core/backup';
 import { PlasticService } from '../core/service';
 import { InMemoryStagingStore } from '../core/stagingStore';
-import { BULK_OPERATION_THRESHOLD, UNITY_CRITICAL_EXTENSIONS } from '../core/safety';
+import { BULK_OPERATION_THRESHOLD } from '../core/safety';
 import { isFileStale } from '../core/staleDetection';
+import { executeDestructiveRevert, AuditLogger } from '../core/destructiveOps';
 import { resolveConfig } from '../util/configResolver';
 import { initDetectedConfig } from '../util/config';
 import { detectWorkspace, detectCachedToken } from '../util/plasticDetector';
@@ -99,6 +100,23 @@ function audit(tool: string, action: string, details?: Record<string, unknown>) 
 		...details,
 	};
 	process.stderr.write(`[AUDIT] ${JSON.stringify(entry)}\n`);
+}
+
+/**
+ * Adapter that routes destructive-ops audit entries through the existing
+ * `audit()` stderr JSON sink. Tool names come from the action string
+ * (`clean_stale:invoked` → tool='clean_stale', action='invoked').
+ */
+function makeDestructiveAuditLogger(toolName: string): AuditLogger {
+	return {
+		log(action, details): void {
+			// Strip the `<tool>:` prefix if executeDestructiveRevert included one
+			// so the tool column in the audit log stays consistent.
+			const colonIdx = action.indexOf(':');
+			const bareAction = colonIdx >= 0 ? action.slice(colonIdx + 1) : action;
+			audit(`bpscm_${toolName}`, bareAction, details);
+		},
+	};
 }
 
 // ── IPC notifications to extension host ─────────────────────────────
@@ -722,44 +740,31 @@ To simply un-stage files without discarding changes, use bpscm_unstage.`,
 				);
 			}
 
-			// Warn about Unity-critical files being reverted
-			const criticalFiles = safePaths.filter(p =>
-				UNITY_CRITICAL_EXTENSIONS.some(ext => p.endsWith(ext)),
-			);
-
-			// Pre-hook: backup files before destructive operation
-			let backupPath: string | undefined;
-			if (safePaths.length > 0) {
-				try {
-					const wsRoot = getCmWorkspaceRoot() || '.';
-					const wsName = (await backend().getCurrentBranch()) || 'unknown-workspace';
-					backupPath = await createBackup({
-						tool: 'undo_checkout',
-						workspace: wsName,
-						workspaceRoot: wsRoot,
-						files: safePaths.map(p => ({
-							path: p,
-							changeType: changeMap.get(p) || changeMap.get(normalizePath(p)) || 'unknown',
-						})),
-						getBaseContent: async (filePath) => backend().getBaseRevisionContent(filePath),
-						backupBaseDir: process.env.PLASTIC_BACKUP_DIR,
-					});
-					audit('bpscm_undo_checkout', 'backup_created', { backupPath, fileCount: safePaths.length });
-				} catch (backupErr) {
-					audit('bpscm_undo_checkout', 'backup_failed', {
-						error: backupErr instanceof Error ? backupErr.message : String(backupErr),
-					});
-				}
+			// Execute via the shared destructive-ops layer (backup + audit + Unity
+			// classification). Bulk guard is disabled here because the tool accepts
+			// explicit per-file paths — callers that pass too many paths intend it.
+			const wsRoot = getCmWorkspaceRoot() || '.';
+			const wsName = (await backend().getCurrentBranch()) || 'unknown-workspace';
+			const changeTypeByPath = new Map<string, string>();
+			for (const p of safePaths) {
+				changeTypeByPath.set(p, changeMap.get(p) || changeMap.get(normalizePath(p)) || 'unknown');
 			}
 
-			// Execute
-			const reverted = safePaths.length > 0 ? await backend().undoCheckout(safePaths) : [];
-			store.remove(reverted);
-			audit('bpscm_undo_checkout', 'completed', {
-				revertedCount: reverted.length,
-				criticalCount: criticalFiles.length,
-				skippedPrivate: privatePaths.length,
+			const revertResult = await executeDestructiveRevert({
+				tool: 'undo_checkout',
+				files: safePaths,
+				backend: backend(),
+				workspaceRoot: wsRoot,
+				workspaceName: wsName,
+				changeTypeByPath,
+				backupBaseDir: process.env.PLASTIC_BACKUP_DIR,
+				audit: makeDestructiveAuditLogger('undo_checkout'),
 			});
+
+			const reverted = revertResult.reverted;
+			const backupPath = revertResult.backupPath;
+			const criticalFiles = revertResult.classification.criticalFiles;
+			store.remove(reverted);
 			notifyStateChanged('bpscm_undo_checkout');
 
 			const result: Record<string, unknown> = {
@@ -929,9 +934,29 @@ Run this before checkin to avoid commit failures from unchanged files.`,
 				});
 			}
 
-			// Guard: Bulk operation threshold
-			if (staleFiles.length > BULK_OPERATION_THRESHOLD && !confirm_bulk) {
-				audit('bpscm_clean_stale', 'blocked_bulk', { staleCount: staleFiles.length });
+			// Execute via the shared destructive-ops layer — handles bulk guard,
+			// backup, audit, Unity-critical detection. The MCP tool passes
+			// enforceBulkGuard=!confirm_bulk so a missing confirmation blocks
+			// the operation. See src/core/destructiveOps.ts.
+			const wsName = (await backend().getCurrentBranch()) || 'unknown-workspace';
+			const changeTypeByPath = new Map<string, string>();
+			for (const p of staleCO) changeTypeByPath.set(p, 'checkedOut');
+			for (const p of staleCH) changeTypeByPath.set(p, 'changed');
+
+			const revertResult = await executeDestructiveRevert({
+				tool: 'clean_stale',
+				files: staleFiles,
+				backend: backend(),
+				workspaceRoot: wsRoot,
+				workspaceName: wsName,
+				changeTypeByPath,
+				enforceBulkGuard: !confirm_bulk,
+				bulkThreshold: BULK_OPERATION_THRESHOLD,
+				backupBaseDir: process.env.PLASTIC_BACKUP_DIR,
+				audit: makeDestructiveAuditLogger('clean_stale'),
+			});
+
+			if (revertResult.status === 'blocked_bulk') {
 				return errorResult(
 					`Found ${staleFiles.length} stale checkouts (threshold: ${BULK_OPERATION_THRESHOLD}). ` +
 					`Set confirm_bulk=true to proceed with mass revert.\n\n` +
@@ -941,52 +966,10 @@ Run this before checkin to avoid commit failures from unchanged files.`,
 				);
 			}
 
-			// Pre-hook: backup files before destructive operation
-			let backupPath: string | undefined;
-			try {
-				const wsName = (await backend().getCurrentBranch()) || 'unknown-workspace';
-				backupPath = await createBackup({
-					tool: 'clean_stale',
-					workspace: wsName,
-					workspaceRoot: wsRoot,
-					files: staleFiles.map(p => ({
-						path: p,
-						changeType: staleCO.includes(p) ? 'checkedOut' : 'changed',
-					})),
-					getBaseContent: async (filePath) => backend().getBaseRevisionContent(filePath),
-					backupBaseDir: process.env.PLASTIC_BACKUP_DIR,
-				});
-				audit('bpscm_clean_stale', 'backup_created', { backupPath, fileCount: staleFiles.length });
-			} catch (backupErr) {
-				audit('bpscm_clean_stale', 'backup_failed', {
-					error: backupErr instanceof Error ? backupErr.message : String(backupErr),
-				});
-			}
-
-			const reverted = await backend().undoCheckout(staleFiles);
+			const reverted = revertResult.reverted;
+			const backupPath = revertResult.backupPath;
 			store.remove(reverted);
-
-			// Flag any Unity-critical files that were reverted
-			const criticalReverted = reverted.filter(p =>
-				UNITY_CRITICAL_EXTENSIONS.some(ext => p.endsWith(ext)),
-			);
-
-			audit('bpscm_clean_stale', 'completed', {
-				revertedCount: reverted.length,
-				staleCOReverted: staleCO.length,
-				staleCHReverted: staleCH.length,
-				criticalCount: criticalReverted.length,
-				addedSkipped: addedFiles,
-				trulyChangedSkipped: changedFiles,
-			});
 			notifyStateChanged('bpscm_clean_stale');
-
-			// Detect files that will trigger Unity reimport/recompilation
-			const unityReimportFiles = reverted.filter(p =>
-				p.endsWith('.cs') || p.endsWith('.shader') || p.endsWith('.compute')
-				|| p.endsWith('.mat') || p.endsWith('.asset')
-				|| UNITY_CRITICAL_EXTENSIONS.some(ext => p.endsWith(ext)),
-			);
 
 			const result: Record<string, unknown> = {
 				revertedFiles: reverted.length,
@@ -997,15 +980,11 @@ Run this before checkin to avoid commit failures from unchanged files.`,
 					`${coFileCandidates.length - staleCO.length} CO file(s) with real changes preserved. ` +
 					`${addedFiles} added and ${changedFiles} truly changed file(s) left untouched.`,
 			};
-			if (criticalReverted.length > 0) {
-				result.criticalFilesReverted = criticalReverted;
+			if (revertResult.classification.criticalFiles.length > 0) {
+				result.criticalFilesReverted = revertResult.classification.criticalFiles;
 			}
-			if (unityReimportFiles.length > 0) {
-				result.unityReimportWarning =
-					`${unityReimportFiles.length} reverted file(s) will trigger Unity reimport/recompilation. ` +
-					`If Unity is running, it may re-checkout these files (creating new stale CH records). ` +
-					`To prevent this cycle: close Unity before running clean_stale, or run bpscm_checkin ` +
-					`which auto-excludes stale files via retry.`;
+			if (revertResult.unityReimportWarning) {
+				result.unityReimportWarning = revertResult.unityReimportWarning;
 			}
 			if (backupPath) {
 				result.backupPath = backupPath;

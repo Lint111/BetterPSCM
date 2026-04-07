@@ -8,7 +8,7 @@ import {
     listBackups,
     getBackupManifest,
     restoreBackup,
-} from '../../../src/mcp/backup.js';
+} from '../../../src/core/backup.js';
 
 function makeTempDir(): string {
     return path.join(os.tmpdir(), `backup-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
