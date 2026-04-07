@@ -256,9 +256,76 @@ Each gap gets its own implementation plan once the preceding one is done and shi
 
 ## Status Tracking
 
+All four gaps are complete as of 2026-04-07. Shipped in v0.4.0.
+
 | Gap | Status | Commit(s) |
 |-----|--------|-----------|
-| Gap 1 — Integration test tier | Pending | — |
-| Gap 2 — Destructive-ops layer | Pending | — |
-| Gap 3 — Webview extraction | Pending | — |
-| Gap 4 — PlasticContext | Pending | — |
+| Gap 1 — Integration test tier | ✅ Complete | `fb091ec`, expanded in `118ab1b` |
+| Gap 2 — Destructive-ops layer | ✅ Complete | `ed9810f`, hardened in `15443ab` |
+| Gap 3 — Webview extraction | ✅ Complete | `a713ea5`, BetterPanel base class in `2b609b0` |
+| Gap 4 — PlasticContext | ✅ Complete | Phase 1: `9413b6d`, Phase 2: `4ed2d8c` |
+
+### What shipped vs what was planned
+
+**Gap 1** — `test/integration/` with `vitest.integration.config.ts`, fixture
+helpers, and 14 integration tests across 3 files (undoCheckout regression,
+destructiveOps backup creation, cm lifecycle round-trips). The original
+plan called for 7+ tests on day one; we delivered 14. The `-a` flag
+regression is locked in by the first test.
+
+**Gap 2** — `src/core/destructiveOps.ts` exports `classifyDestructiveFiles`
+(pure) and `executeDestructiveRevert` (orchestrates backup + bulk guard +
+Unity warning + audit). Both `cleanStale` (UI) and `bpscm_clean_stale` /
+`bpscm_undo_checkout` (MCP) now go through it. The `branchSwitch "Discard"`
+path is the one remaining caller that has not been migrated — its
+existing inline backup logic is intentionally separate because shelve and
+discard need different audit semantics; deferred to a later commit if it
+ever needs the shared layer's posture.
+
+**Gap 3** — Phase A (per-panel HTML/CSS/JS extraction) shipped in
+`a713ea5`. Phase B (BetterPanel base class) shipped in `2b609b0` —
+inheriting panels lost their boilerplate constructor + dispose +
+listener wiring. Two panels migrated (`CodeReviewPanel`,
+`ReviewSnippetPanel`); `historyGraphPanel` deliberately stays out of
+scope because it uses `WebviewViewProvider` (sidebar) not
+`WebviewPanel` (editor tab).
+
+**Gap 4** — Phase 1 (`9413b6d`) introduced the `PlasticContext`
+interface and made `CliBackend` accept it as an optional constructor
+arg. Phase 2 (`4ed2d8c`) migrated all production callers — `extension.ts`
+and `mcp/server.ts` both build their own context on startup and pass it
+through. Module-level `setCmWorkspaceRoot` is now called by zero
+production code paths; the symbol is retained only for unit-test mocks.
+
+### Beyond the roadmap
+
+Two improvements were uncovered during the work and shipped alongside:
+
+- **WSL ↔ Windows path translation** in `stripWorkspaceRoot` (`fb091ec`)
+  fixed a latent bug where `NormalizedChange.path` would return absolute
+  Windows-form paths when the workspace root was stored in WSL form
+  (from a Linux Node process). Caught while building the integration
+  test fixture.
+- **Backup directory traversal hardening** (`15443ab`) — pre-existing
+  `sanitizeWorkspaceName` did not strip `..` and the `tool` parameter
+  had no sanitization at all. Replaced with `sanitizePathComponent`
+  that strips `..` and forces single-component names via
+  `path.basename`. Not currently attacker-reachable but defense-in-depth.
+
+### Audit discipline
+
+Every commit went through a chunk-by-chunk audit before landing:
+
+| Commit | Audit findings caught & fixed in-commit |
+|---|---|
+| `fb091ec` Gap 1 | None — clean first pass |
+| `ed9810f` Gap 2 | None |
+| `9413b6d` Gap 4 phase 1 | None |
+| `a713ea5` Gap 3 phase A | None |
+| `15443ab` (post-Clean-Stale) | 1 major (backup traversal) + 6 minors |
+| `4ed2d8c` Gap 4 phase 2 | 4 minors (re-probe, dead imports, dead setCmWorkspaceRoot) |
+| `118ab1b` Gap 1 expansion | 1 major (cleanup loop missed AD parent dir) |
+| `2b609b0` BetterPanel | 2 majors (registry leak via direct dispose, vscode mock html accessor conflict) |
+
+The `fix known issues, never defer` rule applied throughout: every audit
+finding was resolved before its commit landed. No deferrals.

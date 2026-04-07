@@ -9,6 +9,7 @@ Feature-complete Plastic SCM integration for VS Code — staging, diffs, branche
 - **Two resource groups** — "Staged Changes" and "Changes" with inline actions
 - **Quick diff** — Click any changed file to see inline diffs with gutter decorations
 - **Revert changes** — Discard individual file modifications
+- **Clean Stale Changes** — One-click cleanup of files cm reports as changed but whose working copy is byte-identical to the base revision (the Unity reimport "stale CH" pattern). Confirms before reverting, backs up everything to `~/.plastic-scm-backups/`, and warns if Unity-critical files (`.meta`, `.unity`, `.prefab`, `.asset`, `.asmdef`) are about to be touched.
 
 ### Branch Management
 - **Branch explorer** — View all branches in the SCM sidebar
@@ -17,6 +18,7 @@ Feature-complete Plastic SCM integration for VS Code — staging, diffs, branche
 
 ### History
 - **Interactive history graph** — SVG-based changeset visualization with branch lines
+- **File-scoped history filter** — Filter the graph to changesets that touched a specific file; auto-follows the active editor
 - **File history** — View revision history for any file
 - **Annotate (Blame)** — Line-by-line blame with changeset, author, and date
 
@@ -88,6 +90,28 @@ The extension supports two backends:
 2. **cm CLI** (fallback) — Works without authentication, used when REST is unavailable
 
 The backend is selected automatically at startup.
+
+## Architecture
+
+- **`PlasticContext`** — every workspace operation runs scoped to an explicit context (`{ workspaceRoot, cmPath }`) instead of mutable module-level state, so the extension and the standalone MCP server can co-exist in one Node process and integration tests can drive isolated `CliBackend` instances.
+- **Shared destructive-ops layer** — both the UI's "Clean Stale Changes" button and the MCP `bpscm_clean_stale` / `bpscm_undo_checkout` tools route through `executeDestructiveRevert`, which writes a backup to `$PLASTIC_BACKUP_DIR` (or `~/.plastic-scm-backups/`), enforces the bulk-operation threshold, classifies Unity-critical files, and emits structured audit log entries. Backups can be restored via `bpscm_restore_backup` from the MCP side.
+- **Webview panels** extend a small `BetterPanel` base class for lifecycle (CSP, dispose, message routing); the panel-specific HTML, CSS, and client JS live in sibling files under `src/views/panels/<name>/`.
+
+## Testing
+
+```bash
+npm test                  # 465 unit tests, all mocked, fast
+npm run test:integration  # opt-in integration tier — drives a real cm binary
+                          # against a throwaway Plastic workspace.
+                          # Requires BPSCM_INTEGRATION_WORKSPACE env var.
+                          # See test/integration/README.md for setup.
+```
+
+The integration tier exists specifically to catch CLI semantics bugs the
+unit tests can't see — flag changes, output format drifts, and path-format
+assumptions across Plastic versions. The `cm undocheckout -a` flag bug
+that motivated the v0.4.0 robustness work is locked in by a regression
+test there.
 
 ## License
 
