@@ -14,7 +14,7 @@
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { setCmWorkspaceRoot, detectCm, isCmAvailable, getCmWorkspaceRoot, execCmToFile } from '../core/cmCli';
+import { setCmWorkspaceRoot, detectCm, isCmAvailable, getCmWorkspaceRoot } from '../core/cmCli';
 import { CliBackend } from '../core/backendCli';
 import { setBackend, getBackend } from '../core/backend';
 import type { PlasticBackend } from '../core/backend';
@@ -22,6 +22,7 @@ import { createBackup, listBackups, getBackupManifest, restoreBackup } from './b
 import { PlasticService } from '../core/service';
 import { InMemoryStagingStore } from '../core/stagingStore';
 import { BULK_OPERATION_THRESHOLD, UNITY_CRITICAL_EXTENSIONS } from '../core/safety';
+import { isFileStale } from '../core/staleDetection';
 import { resolveConfig } from '../util/configResolver';
 import { initDetectedConfig } from '../util/config';
 import { detectWorkspace, detectCachedToken } from '../util/plasticDetector';
@@ -30,10 +31,6 @@ import { createHybridBackend } from '../core/backendHybrid';
 import { RestBackend } from '../core/backendRest';
 import { buildReviewAudit } from './reviewAudit.js';
 import { normalizePath } from '../util/path';
-import { join } from 'path';
-import { unlink } from 'fs/promises';
-import { createHash } from 'crypto';
-import { createReadStream } from 'fs';
 
 // ── Standalone logger (stderr, no vscode) ────────────────────────────
 
@@ -77,40 +74,6 @@ function getService(): PlasticService {
 		service = new PlasticService(backend(), store);
 	}
 	return service;
-}
-
-/** Hash a file using streaming SHA-256 — no full content in memory. */
-function hashFile(filePath: string): Promise<string> {
-	return new Promise((resolve, reject) => {
-		const hash = createHash('sha256');
-		const stream = createReadStream(filePath);
-		stream.on('data', (chunk) => hash.update(chunk));
-		stream.on('end', () => resolve(hash.digest('hex')));
-		stream.on('error', reject);
-	});
-}
-
-/**
- * Check if a CH file is stale by comparing its SHA-256 hash against
- * the base revision fetched via cm cat (streamed to temp file for raw bytes).
- */
-async function isFileStale(filePath: string, wsRoot: string): Promise<boolean> {
-	try {
-		const absPath = join(wsRoot, filePath);
-		const baseTempPath = await execCmToFile(['cat', filePath, '--raw']);
-		if (!baseTempPath) return false; // can't get base → assume changed
-		try {
-			const [workHash, baseHash] = await Promise.all([
-				hashFile(absPath),
-				hashFile(baseTempPath),
-			]);
-			return workHash === baseHash;
-		} finally {
-			unlink(baseTempPath).catch(() => {});
-		}
-	} catch {
-		return false; // error → assume changed (safe default)
-	}
 }
 
 function textResult(text: string) {

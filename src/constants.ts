@@ -16,6 +16,7 @@ export const COMMANDS = {
 	unstageAll: 'bpscm.unstageAll',
 	checkin: 'bpscm.checkin',
 	checkinAll: 'bpscm.checkinAll',
+	cleanStale: 'bpscm.cleanStale',
 	refresh: 'bpscm.refresh',
 	openChange: 'bpscm.openChange',
 	openFile: 'bpscm.openFile',

@@ -783,13 +783,20 @@ export class CliBackend implements PlasticBackend {
 
 	// Phase 6 — Undo checkout
 	async undoCheckout(paths: string[]): Promise<string[]> {
-		// --silent suppresses any GUI confirmation dialogs
-		const args = ['undocheckout', '--silent', ...paths];
+		if (paths.length === 0) return [];
+		// -a / --all is REQUIRED to revert CH (locally modified) files. Without it
+		// cm undocheckout is a silent no-op on CH files and only reverts CO (checkedOut)
+		// state. --silent suppresses GUI confirmation dialogs.
+		const args = ['undocheckout', '-a', '--silent', ...paths];
 		const result = await execCm(args);
 		if (result.exitCode !== 0) {
 			throw new Error(`cm undocheckout failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
 		}
-		log(`Undo checkout: ${paths.length} file(s)`);
+		// Surface cm output even on success — Plastic can exit 0 while skipping files
+		// (locked in another workspace, parent dir not checked out, etc.).
+		const stdoutSnippet = result.stdout.trim().slice(0, 500);
+		const stderrSnippet = result.stderr.trim().slice(0, 500);
+		log(`Undo checkout: ${paths.length} file(s) requested${stdoutSnippet ? ` | stdout: ${stdoutSnippet}` : ''}${stderrSnippet ? ` | stderr: ${stderrSnippet}` : ''}`);
 		return paths;
 	}
 

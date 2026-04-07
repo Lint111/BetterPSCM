@@ -83,6 +83,12 @@
         "category": "BetterPSCM"
       },
       {
+        "command": "bpscm.cleanStale",
+        "title": "Clean Stale Changes",
+        "icon": "$(clear-all)",
+        "category": "BetterPSCM"
+      },
+      {
         "command": "bpscm.refresh",
         "title": "Refresh",
         "icon": "$(refresh)",
@@ -229,6 +235,11 @@
         {
           "command": "bpscm.refresh",
           "group": "navigation",
+          "when": "scmProvider == bpscm"
+        },
+        {
+          "command": "bpscm.cleanStale",
+          "group": "navigation@5",
           "when": "scmProvider == bpscm"
         },
         {

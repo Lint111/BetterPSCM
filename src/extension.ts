@@ -9,6 +9,7 @@ import { PlasticScmProvider } from './scm/plasticScmProvider';
 import { PlasticStatusBar } from './statusBar/plasticStatusBar';
 import { registerStagingCommands } from './commands/staging';
 import { registerCheckinCommands } from './commands/checkin';
+import { registerCleanStaleCommand } from './commands/cleanStale';
 import { registerGeneralCommands } from './commands/general';
 import { registerBranchCommands } from './commands/branch';
 import { registerUpdateCommands } from './commands/update';
@@ -230,6 +231,7 @@ async function setupProvider(context: vscode.ExtensionContext): Promise<void> {
 	// Register all commands
 	registerStagingCommands(context, provider);
 	registerCheckinCommands(context, provider);
+	registerCleanStaleCommand(context, provider);
 	registerGeneralCommands(context, provider);
 	registerBranchCommands(context, provider);
 	registerUpdateCommands(context, provider);
