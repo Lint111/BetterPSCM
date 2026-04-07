@@ -22,7 +22,7 @@
  */
 
 import { existsSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'fs';
-import { join } from 'path';
+import { join, resolve, sep } from 'path';
 import { CliBackend } from '../../src/core/backendCli';
 import { probeCmBinary, execCmWithContext } from '../../src/core/cmCli';
 import { createPlasticContext, PlasticContext } from '../../src/core/context';
@@ -197,7 +197,15 @@ export async function createIntegrationFixture(): Promise<IntegrationFixture> {
 		},
 
 		writeScratch(relName, content): string {
-			const abs = join(scratchDirAbs, relName);
+			// Guard against `..` traversal — a misbehaving test should not be
+			// able to write outside its own scratch directory, even by accident.
+			const abs = resolve(scratchDirAbs, relName);
+			const scratchDirResolved = resolve(scratchDirAbs);
+			if (abs !== scratchDirResolved && !abs.startsWith(scratchDirResolved + sep)) {
+				throw new Error(
+					`writeScratch: relName "${relName}" resolves to "${abs}" which escapes the scratch directory "${scratchDirResolved}"`,
+				);
+			}
 			const parentDir = relName.includes('/')
 				? join(scratchDirAbs, relName.slice(0, relName.lastIndexOf('/')))
 				: scratchDirAbs;

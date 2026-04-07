@@ -34,12 +34,20 @@ export interface PlasticContext {
 /**
  * Create a frozen PlasticContext from the given fields. Freezing guards
  * against accidental mutation by consumers that treat the context as a
- * mutable object.
+ * mutable object. Validates that both fields are non-empty so a bad
+ * construction fails at the factory call site rather than deep inside
+ * a spawn() call with an undefined binary.
  */
 export function createPlasticContext(opts: {
 	workspaceRoot: string;
 	cmPath: string;
 }): PlasticContext {
+	if (!opts.workspaceRoot || typeof opts.workspaceRoot !== 'string') {
+		throw new Error('createPlasticContext: workspaceRoot must be a non-empty string');
+	}
+	if (!opts.cmPath || typeof opts.cmPath !== 'string') {
+		throw new Error('createPlasticContext: cmPath must be a non-empty string');
+	}
 	return Object.freeze({
 		workspaceRoot: opts.workspaceRoot,
 		cmPath: opts.cmPath,

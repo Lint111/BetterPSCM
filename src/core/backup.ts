@@ -38,14 +38,38 @@ export interface CreateBackupOptions {
 
 const UNITY_CRITICAL_SET = new Set(UNITY_CRITICAL_EXTENSIONS);
 
+/** Characters that would let a path component escape its parent directory or
+ *  cause filesystem errors on Windows. Applied as a first pass. */
 const SANITIZE_RE = /[<>:"/\\|?* ]/g;
+
+/** Parent-directory sequences that must never appear in a sanitized name.
+ *  Handled separately from SANITIZE_RE because `.` is legal inside a filename
+ *  (e.g. `v1.2.3`) — only the `..` sequence is dangerous. */
+const PARENT_DIR_RE = /\.\.+/g;
 
 const GUID_RE = /^guid:\s*([0-9a-f]+)/m;
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
-function sanitizeWorkspaceName(name: string): string {
-    return name.replace(SANITIZE_RE, '_');
+/**
+ * Sanitize an arbitrary string for use as a single path component in a backup
+ * directory name. Strips forbidden characters, collapses `..` sequences, and
+ * forces the result through `path.basename` so any residual path separators
+ * cannot escape the parent directory.
+ *
+ * This is defense-in-depth — the current callers all pass hardcoded tool names
+ * and branch names read from cm, but a single-component guarantee removes an
+ * entire class of path-traversal footguns.
+ */
+function sanitizePathComponent(name: string): string {
+    const base = name
+        .replace(SANITIZE_RE, '_')
+        .replace(PARENT_DIR_RE, '_');
+    // Defensive: path.basename strips any residual directory separators that
+    // might have been introduced by a pathological input. Empty result falls
+    // back to a placeholder so we never construct `path.join(base, '')`.
+    const single = path.basename(base);
+    return single.length > 0 ? single : 'unnamed';
 }
 
 function flattenPath(filePath: string): string {
@@ -76,7 +100,7 @@ function extractGuid(content: Buffer): string | null {
 
 export function resolveBackupDir(workspace: string, overrideDir?: string): string {
     const base = overrideDir ?? process.env.PLASTIC_BACKUP_DIR ?? path.join(os.homedir(), '.plastic-scm-backups');
-    return path.join(base, sanitizeWorkspaceName(workspace));
+    return path.join(base, sanitizePathComponent(workspace));
 }
 
 export async function createBackup(options: CreateBackupOptions): Promise<string> {
@@ -91,7 +115,10 @@ export async function createBackup(options: CreateBackupOptions): Promise<string
 
     const timestamp = formatTimestamp(new Date());
     const wsBackupDir = resolveBackupDir(workspace, backupBaseDir);
-    const backupDir = path.join(wsBackupDir, `${timestamp}_${tool}`);
+    // Sanitize the tool name so callers cannot inject `..` or path separators
+    // into the backup directory path, even transitively via template strings.
+    const safeTool = sanitizePathComponent(tool);
+    const backupDir = path.join(wsBackupDir, `${timestamp}_${safeTool}`);
     const filesDir = path.join(backupDir, 'files');
     const baseDir = path.join(backupDir, 'base');
 

@@ -46,11 +46,61 @@ describe('backup module', () => {
             const result = resolveBackupDir('my workspace<>:test', '/base');
             expect(result).toBe(path.join('/base', 'my_workspace___test'));
         });
+
+        it('rejects parent-directory traversal via ".." in workspace name', () => {
+            // Without sanitization, `..` would resolve to the parent of /base.
+            // The sanitizer must collapse the `..` into a safe literal.
+            const result = resolveBackupDir('..', '/base');
+            // path.basename + sanitize should produce a single-component name
+            // that does NOT equal `..` or `.` or an empty string.
+            const component = path.basename(result);
+            expect(component).not.toBe('..');
+            expect(component).not.toBe('.');
+            expect(component.length).toBeGreaterThan(0);
+            // The resolved dir must still be a child of /base
+            expect(result.startsWith('/base' + path.sep) || result === '/base').toBe(true);
+        });
+
+        it('rejects slashes hiding inside workspace name', () => {
+            // A workspace name like `../etc` has both `/` and `..`. Both must
+            // be neutralized so the backup dir stays inside /base.
+            const result = resolveBackupDir('../etc/passwd', '/base');
+            const component = path.basename(result);
+            expect(component).not.toContain('..');
+            expect(component).not.toContain('/');
+            expect(result.startsWith('/base' + path.sep) || result === '/base').toBe(true);
+        });
     });
 
     // ── createBackup ───────────────────────────────────────────────
 
     describe('createBackup', () => {
+        it('sanitizes tool name so ".." cannot escape the workspace backup dir', async () => {
+            const backupBase = trackDir(makeTempDir());
+            const wsRoot = trackDir(makeTempDir());
+            await fs.mkdir(wsRoot, { recursive: true });
+            await fs.writeFile(path.join(wsRoot, 'foo.txt'), 'hi');
+
+            // Attempted path traversal via the tool parameter. The resulting
+            // backup directory must remain a child of the workspace backup dir.
+            const backupDir = await createBackup({
+                tool: '../etc',
+                workspace: 'ws',
+                workspaceRoot: wsRoot,
+                files: [{ path: 'foo.txt', changeType: 'changed' }],
+                getBaseContent: async () => null,
+                backupBaseDir: backupBase,
+            });
+
+            const expectedWsBackup = path.join(backupBase, 'ws');
+            // The backup directory must be inside the workspace backup dir.
+            expect(backupDir.startsWith(expectedWsBackup + path.sep)).toBe(true);
+            // And the final path component must not contain ".." or "/".
+            const component = path.basename(backupDir);
+            expect(component).not.toContain('..');
+            expect(component).not.toContain('/');
+        });
+
         it('creates manifest.json with correct structure', async () => {
             const backupBase = trackDir(makeTempDir());
             const wsRoot = trackDir(makeTempDir());

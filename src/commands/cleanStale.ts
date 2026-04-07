@@ -15,8 +15,17 @@ import type { PlasticScmProvider } from '../scm/plasticScmProvider';
 /** Maximum number of file paths shown inline in the confirmation dialog. */
 const PREVIEW_LIMIT = 10;
 
+/** Maximum number of Unity-critical paths shown inline in the critical warning
+ *  section of the confirmation dialog. Smaller than the stale-files preview
+ *  because critical files are a subset and the warning is a sidebar note. */
+const CRITICAL_PREVIEW_LIMIT = 5;
+
 /** Number of paths shown inline in log lines (for grep-ability in the output channel). */
 const LOG_SAMPLE_SIZE = 5;
+
+/** Label of the destructive confirmation button. Kept as a const so the
+ *  button label and the `answer === …` check cannot drift out of sync. */
+const REVERT_ACTION_LABEL = 'Revert Stale';
 
 /**
  * Adapter that routes destructive-op audit entries to the extension's
@@ -101,17 +110,17 @@ export function registerCleanStaleCommand(
 					: '';
 				const criticalWarning = classification.criticalFiles.length > 0
 					? `\n\n⚠ ${classification.criticalFiles.length} Unity-critical file(s) will be reverted: ` +
-					  classification.criticalFiles.slice(0, 3).join(', ') +
-					  (classification.criticalFiles.length > 3 ? `, …` : '')
+					  classification.criticalFiles.slice(0, CRITICAL_PREVIEW_LIMIT).join(', ') +
+					  (classification.criticalFiles.length > CRITICAL_PREVIEW_LIMIT ? `, …` : '')
 					: '';
 
 				const answer = await vscode.window.showWarningMessage(
 					`Revert ${staleCount} stale file(s)? Their working copy is byte-identical to the base revision.${bulkWarning}${criticalWarning}\n\n${preview}${more}`,
 					{ modal: true },
-					'Revert Stale',
+					REVERT_ACTION_LABEL,
 				);
 
-				if (answer !== 'Revert Stale') {
+				if (answer !== REVERT_ACTION_LABEL) {
 					log('cleanStale: user cancelled');
 					return;
 				}
@@ -125,9 +134,12 @@ export function registerCleanStaleCommand(
 				// is NOT enforced here because the user has already confirmed via
 				// the modal dialog above. Backup runs automatically.
 				const workspaceName = (await getCurrentBranch().catch(() => undefined)) || 'unknown-workspace';
+				// O(n+m) change-type lookup: precompute the stale set once instead
+				// of calling Array.includes() inside the loop.
+				const stalePathSet = new Set(result.stalePaths);
 				const changeTypeByPath = new Map<string, string>();
 				for (const change of changes) {
-					if (result.stalePaths.includes(change.path)) {
+					if (stalePathSet.has(change.path)) {
 						changeTypeByPath.set(change.path, change.changeType);
 					}
 				}

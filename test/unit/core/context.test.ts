@@ -32,6 +32,16 @@ describe('createPlasticContext', () => {
 		expect(b.workspaceRoot).toBe('/b');
 		expect(a).not.toBe(b);
 	});
+
+	it('throws when workspaceRoot is empty', () => {
+		expect(() => createPlasticContext({ workspaceRoot: '', cmPath: '/cm' }))
+			.toThrow(/workspaceRoot must be a non-empty string/);
+	});
+
+	it('throws when cmPath is empty', () => {
+		expect(() => createPlasticContext({ workspaceRoot: '/ws', cmPath: '' }))
+			.toThrow(/cmPath must be a non-empty string/);
+	});
 });
 
 describe('CliBackend context injection', () => {

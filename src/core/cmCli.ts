@@ -84,12 +84,25 @@ export async function detectCm(): Promise<string | undefined> {
 }
 
 /**
- * Reset the cached cm binary path. Used by integration tests that need
- * to force re-detection after changing PLASTIC_CM_PATH, and by tests
- * that need to start from a clean module state.
+ * Reset all module-level cm state: cached binary path AND workspace root.
+ * Used by tests that need to start from a clean slate and by integration
+ * tests that force re-detection after changing PLASTIC_CM_PATH.
+ *
+ * Does not kill active child processes — use `killActiveChildren()` for that.
+ */
+export function resetCmState(): void {
+	cmPath = undefined;
+	workspaceRoot = undefined;
+}
+
+/**
+ * Deprecated alias for `resetCmState`. Kept for backwards compatibility with
+ * existing call sites; new code should use `resetCmState` which communicates
+ * the full scope of the reset.
+ * @deprecated Use resetCmState instead.
  */
 export function resetCmPath(): void {
-	cmPath = undefined;
+	resetCmState();
 }
 
 /**
