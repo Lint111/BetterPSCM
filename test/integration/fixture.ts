@@ -219,9 +219,11 @@ export async function createIntegrationFixture(): Promise<IntegrationFixture> {
 		},
 
 		async cleanup(): Promise<void> {
-			// Restore the anchor to base content if the test modified it. Always
-			// attempt this — undoCheckout's empty-paths guard handles the no-op
-			// case, and the CH/CO check against cm status avoids unnecessary work.
+			// Restore the anchor to base content if the test modified it, and
+			// revert any AD records the test left in the scratch dir. The
+			// cleanup is intentionally generous — both file-level records AND
+			// the auto-added parent directory record need reverting before
+			// rmSync, otherwise cm leaves AD+LD orphan entries.
 			try {
 				const status = await backend.getStatus(true);
 				const toRevert: string[] = [];
@@ -230,10 +232,15 @@ export async function createIntegrationFixture(): Promise<IntegrationFixture> {
 					if (c.path === anchorPath && (c.changeType === 'changed' || c.changeType === 'checkedOut')) {
 						toRevert.push(c.path);
 					}
-					// Also revert any AD/CH/CO records inside this test's scratch dir.
-					// Tests should use scratch for private files only, but guard anyway
-					// so misbehaving tests can't leave committed state behind.
-					if (c.path.startsWith(`${scratchDir}/`) && c.changeType !== 'private') {
+					// Revert any non-private record inside this test's scratch dir,
+					// AND the directory record itself. The directory check matters
+					// because `cm add` on a file inside a fresh subdir auto-adds the
+					// parent dir as AD — without reverting it, rmSync would leave
+					// the directory as an AD+LD orphan.
+					if (
+						(c.path === scratchDir || c.path.startsWith(`${scratchDir}/`)) &&
+						c.changeType !== 'private'
+					) {
 						toRevert.push(c.path);
 					}
 				}
@@ -243,8 +250,9 @@ export async function createIntegrationFixture(): Promise<IntegrationFixture> {
 			} catch {
 				// ignore — we are cleaning up anyway
 			}
-			// Remove the scratch directory from disk. Since scratch files are never
-			// committed, this cannot create LD records — cm doesn't know about them.
+			// Remove the scratch directory from disk. After the undoCheckout
+			// pass above, any AD/CH/CO records on the directory or its files
+			// have been reverted, so rmSync will not create LD orphans.
 			try {
 				rmSync(scratchDirAbs, { recursive: true, force: true });
 			} catch {
