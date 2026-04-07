@@ -28,11 +28,12 @@ import { ReviewDecorationProvider } from './providers/reviewDecorationProvider';
 import { HistoryGraphViewProvider } from './views/historyGraphPanel';
 import { COMMANDS, SETTINGS } from './constants';
 import { detectWorkspace, detectClientConfig, detectCachedToken, hasPlasticWorkspace } from './util/plasticDetector';
-import { detectCm, setCmWorkspaceRoot, isCmAvailable } from './core/cmCli';
+import { detectCm, isCmAvailable } from './core/cmCli';
 import { setBackend } from './core/backend';
 import { CliBackend } from './core/backendCli';
 import { RestBackend } from './core/backendRest';
 import { createHybridBackend } from './core/backendHybrid';
+import { createPlasticContext, PlasticContext } from './core/context';
 
 const disposables = new DisposableStore();
 
@@ -54,9 +55,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// Auto-detect workspace from .plastic folder if not yet configured
 	await autoDetectAndConfigure();
 
-	// Detect cm CLI early so isConfigured() can account for it
+	// Detect cm CLI early so isConfigured() can account for it. The probe
+	// runs `cm version` which doesn't need a workspace root, so we don't
+	// pre-set one here — the per-workspace PlasticContext built later in
+	// setupProvider() carries the root for actual cm operations.
 	if (wsFolder) {
-		setCmWorkspaceRoot(wsFolder.uri.fsPath);
 		await detectCm();
 	}
 
@@ -208,24 +211,44 @@ async function setupProvider(context: vscode.ExtensionContext): Promise<void> {
 		hasCreds = await tryAutoLoginFromDesktopClient();
 	}
 
+	// Build a PlasticContext from the detected cm binary + workspace root.
+	// The context is what the new ctx-aware backends and helpers consume — it's
+	// the replacement for the module-level cmPath / workspaceRoot globals.
+	// detectCm() ran earlier in activate() and cached the binary path; calling
+	// it here returns the cached value via cmCli's early-return fast path
+	// (no second probe).
+	let plasticCtx: PlasticContext | undefined;
+	if (cmAvailable) {
+		const cmPath = await detectCm();
+		if (cmPath) {
+			plasticCtx = createPlasticContext({
+				workspaceRoot: wsFolder.uri.fsPath,
+				cmPath,
+			});
+		}
+	}
+
 	// Set the active backend:
 	// - Hybrid (CLI + REST) when both are available — CLI for workspace ops, REST for repo ops
 	// - REST-only if no CLI (unlikely but possible)
 	// - CLI-only if no REST auth
+	// CliBackend instances receive the context so their internal cm calls
+	// route through the ctx-aware exec helpers instead of module globals.
 	if (hasCreds && cmAvailable) {
-		setBackend(createHybridBackend(new CliBackend(), new RestBackend()));
+		setBackend(createHybridBackend(new CliBackend(plasticCtx), new RestBackend()));
 	} else if (hasCreds) {
 		setBackend(new RestBackend());
 	} else if (cmAvailable) {
 		log('REST API auth failed — using cm CLI backend');
-		setBackend(new CliBackend());
+		setBackend(new CliBackend(plasticCtx));
 	} else {
 		log('No backend available — neither REST API nor cm CLI');
 	}
 
-	// Create the SCM provider
+	// Create the SCM provider — receives the context so command handlers can
+	// pass it down into context-aware helpers like detectStaleChanges().
 	const provider = disposables.add(
-		new PlasticScmProvider(wsFolder.uri, context.workspaceState),
+		new PlasticScmProvider(wsFolder.uri, context.workspaceState, plasticCtx),
 	);
 
 	// Register all commands

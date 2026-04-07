@@ -23,6 +23,7 @@ import { DisposableStore } from '../util/disposable';
 import { AuthExpiredError, isPlasticApiError } from '../api/errors';
 import { isCommittableChange } from '../core/safety';
 import type { NormalizedChange } from '../core/types';
+import type { PlasticContext } from '../core/context';
 
 /**
  * Main SCM provider for Plastic SCM.
@@ -55,6 +56,7 @@ export class PlasticScmProvider implements vscode.Disposable {
 	constructor(
 		workspaceRoot: vscode.Uri,
 		memento: vscode.Memento,
+		private readonly ctx?: PlasticContext,
 	) {
 		this.workspaceRoot = workspaceRoot;
 
@@ -117,6 +119,15 @@ export class PlasticScmProvider implements vscode.Disposable {
 	 */
 	getService(): PlasticService {
 		return this.service;
+	}
+
+	/**
+	 * Get the PlasticContext this provider was constructed with, if any.
+	 * Returns undefined for legacy callers that haven't migrated yet — those
+	 * still rely on the module-level cm globals via the backend's fallback path.
+	 */
+	getContext(): PlasticContext | undefined {
+		return this.ctx;
 	}
 
 	/**

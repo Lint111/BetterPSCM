@@ -73,13 +73,16 @@ export function registerCleanStaleCommand(
 				}
 
 				// Phase 1: scan the change list for stale files via SHA-256 comparison.
+				// Pass the provider's PlasticContext so the underlying cm cat calls
+				// run scoped to this workspace's binary + root, not the module globals.
+				const providerCtx = provider.getContext();
 				const result = await vscode.window.withProgress(
 					{
 						location: vscode.ProgressLocation.SourceControl,
 						title: 'Scanning for stale changes...',
 						cancellable: false,
 					},
-					async () => detectStaleChanges(changes, wsFolder.uri.fsPath),
+					async () => detectStaleChanges(changes, wsFolder.uri.fsPath, providerCtx),
 				);
 
 				const staleCount = result.stalePaths.length;

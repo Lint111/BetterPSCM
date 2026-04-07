@@ -2,9 +2,10 @@ import { createHash } from 'crypto';
 import { createReadStream } from 'fs';
 import { unlink } from 'fs/promises';
 import { join } from 'path';
-import { execCmToFile } from './cmCli';
+import { execCmToFile, execCmToFileWithContext } from './cmCli';
 import { log } from '../util/logger';
 import type { NormalizedChange } from './types';
+import type { PlasticContext } from './context';
 
 /** Batch size for parallel SHA-256 comparisons. Balances throughput against cm CLI load. */
 export const STALE_DETECTION_BATCH_SIZE = 5;
@@ -35,11 +36,22 @@ export function hashFile(filePath: string): Promise<string> {
  * Returns true only when hashes match. Any error (missing base, cm failure)
  * returns false — the safe default is "assume changed". Errors are logged
  * so genuine bugs remain visible in the output channel.
+ *
+ * When `ctx` is provided, the underlying `cm cat` call is scoped to that
+ * context — useful when multiple workspaces share the same Node process.
+ * Without `ctx`, the call falls back to the module-level cm globals
+ * (legacy path for callers that have not migrated to PlasticContext).
  */
-export async function isFileStale(filePath: string, wsRoot: string): Promise<boolean> {
+export async function isFileStale(
+	filePath: string,
+	wsRoot: string,
+	ctx?: PlasticContext,
+): Promise<boolean> {
 	try {
 		const absPath = join(wsRoot, filePath);
-		const baseTempPath = await execCmToFile(['cat', filePath, '--raw']);
+		const baseTempPath = ctx
+			? await execCmToFileWithContext(ctx, ['cat', filePath, '--raw'])
+			: await execCmToFile(['cat', filePath, '--raw']);
 		if (!baseTempPath) return false;
 		try {
 			const [workHash, baseHash] = await Promise.all([
@@ -70,10 +82,15 @@ export interface StaleDetectionResult {
  * Scan a set of changes and identify which ones are stale via content hash comparison.
  * Only file-type changes with a candidate changeType (changed, checkedOut) are scanned.
  * Added, deleted, moved, and private files are returned in `skippedPaths`.
+ *
+ * Pass `ctx` to scope the `cm cat` calls to a specific PlasticContext —
+ * required when this module is invoked from a code path that owns its own
+ * context rather than relying on the module-level cm globals.
  */
 export async function detectStaleChanges(
 	changes: readonly NormalizedChange[],
 	wsRoot: string,
+	ctx?: PlasticContext,
 ): Promise<StaleDetectionResult> {
 	const stalePaths: string[] = [];
 	const trulyChangedPaths: string[] = [];
@@ -93,7 +110,7 @@ export async function detectStaleChanges(
 		const results = await Promise.all(
 			batch.map(async (filePath) => ({
 				filePath,
-				stale: await isFileStale(filePath, wsRoot),
+				stale: await isFileStale(filePath, wsRoot, ctx),
 			})),
 		);
 		for (const { filePath, stale } of results) {

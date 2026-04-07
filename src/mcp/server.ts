@@ -14,7 +14,7 @@
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { setCmWorkspaceRoot, detectCm, isCmAvailable, getCmWorkspaceRoot } from '../core/cmCli';
+import { detectCm, isCmAvailable } from '../core/cmCli';
 import { CliBackend } from '../core/backendCli';
 import { setBackend, getBackend } from '../core/backend';
 import type { PlasticBackend } from '../core/backend';
@@ -24,6 +24,7 @@ import { InMemoryStagingStore } from '../core/stagingStore';
 import { BULK_OPERATION_THRESHOLD } from '../core/safety';
 import { isFileStale } from '../core/staleDetection';
 import { executeDestructiveRevert, AuditLogger } from '../core/destructiveOps';
+import { createPlasticContext, PlasticContext } from '../core/context';
 import { resolveConfig } from '../util/configResolver';
 import { initDetectedConfig } from '../util/config';
 import { detectWorkspace, detectCachedToken } from '../util/plasticDetector';
@@ -65,6 +66,20 @@ const server = new McpServer({
 
 function backend(): PlasticBackend {
 	return getBackend();
+}
+
+/**
+ * MCP-server-local PlasticContext. Built once in main() after the cm binary
+ * is detected. Tool handlers read `mcpContext.workspaceRoot` directly instead
+ * of reaching for the module-level cm globals — keeps the server's state
+ * scoped to this process and consistent with the extension's ctx-driven path.
+ */
+let mcpContext: PlasticContext | undefined;
+
+/** Get the MCP server's workspace root, with a `.` fallback for the rare
+ *  pre-init code path. Replaces the old `getCmWorkspaceRoot() || '.'` idiom. */
+function mcpWorkspaceRoot(): string {
+	return mcpContext?.workspaceRoot ?? '.';
 }
 
 const store = new InMemoryStagingStore();
@@ -172,7 +187,7 @@ TIP: Use detect_stale=true before staging/checkin to avoid commit failures from 
 			// Build set of stale CO+CH files via SHA-256 hash comparison (if requested)
 			const stalePaths = new Set<string>();
 			if (detect_stale) {
-				const wsRoot = getCmWorkspaceRoot() || '.';
+				const wsRoot = mcpWorkspaceRoot();
 				const filesToCheck = result.changes
 					.filter(c => (c.changeType === 'changed' || c.changeType === 'checkedOut') && c.dataType === 'File')
 					.map(c => c.path);
@@ -183,7 +198,7 @@ TIP: Use detect_stale=true before staging/checkin to avoid commit failures from 
 						const results = await Promise.all(
 							batch.map(async (filePath) => ({
 								filePath,
-								stale: await isFileStale(filePath, wsRoot),
+								stale: await isFileStale(filePath, wsRoot, mcpContext),
 							})),
 						);
 						for (const { filePath, stale } of results) {
@@ -743,7 +758,7 @@ To simply un-stage files without discarding changes, use bpscm_unstage.`,
 			// Execute via the shared destructive-ops layer (backup + audit + Unity
 			// classification). Bulk guard is disabled here because the tool accepts
 			// explicit per-file paths — callers that pass too many paths intend it.
-			const wsRoot = getCmWorkspaceRoot() || '.';
+			const wsRoot = mcpWorkspaceRoot();
 			const wsName = (await backend().getCurrentBranch()) || 'unknown-workspace';
 			const changeTypeByPath = new Map<string, string>();
 			for (const p of safePaths) {
@@ -830,7 +845,7 @@ Run this before checkin to avoid commit failures from unchanged files.`,
 
 			const status = await backend().getStatus(false);
 
-			const wsRoot = getCmWorkspaceRoot() || '.';
+			const wsRoot = mcpWorkspaceRoot();
 
 			// Phase 1: CO files — content-compare because CO only means "checked out",
 			// NOT "unchanged". Unity checks out scenes/assets on open; real edits exist
@@ -848,7 +863,7 @@ Run this before checkin to avoid commit failures from unchanged files.`,
 					const results = await Promise.all(
 						batch.map(async (filePath) => ({
 							filePath,
-							stale: await isFileStale(filePath, wsRoot),
+							stale: await isFileStale(filePath, wsRoot, mcpContext),
 						})),
 					);
 					for (const { filePath, stale } of results) {
@@ -882,7 +897,7 @@ Run this before checkin to avoid commit failures from unchanged files.`,
 					const results = await Promise.all(
 						batch.map(async (filePath) => ({
 							filePath,
-							stale: await isFileStale(filePath, wsRoot),
+							stale: await isFileStale(filePath, wsRoot, mcpContext),
 						})),
 					);
 					for (const { filePath, stale } of results) {
@@ -1025,7 +1040,7 @@ ACTIONS:
 	async ({ action, backup_id, paths }) => {
 		return withMcpLock(async () => {
 			try {
-				const wsRoot = getCmWorkspaceRoot() || '.';
+				const wsRoot = mcpWorkspaceRoot();
 				const wsName = (await backend().getCurrentBranch()) || 'unknown-workspace';
 
 			if (action === 'list') {
@@ -1265,7 +1280,7 @@ async function trySetupHybridBackend(workspacePath: string): Promise<boolean> {
 		return false;
 	}
 
-	setBackend(createHybridBackend(new CliBackend(), new RestBackend()));
+	setBackend(createHybridBackend(new CliBackend(mcpContext), new RestBackend()));
 	return true;
 }
 
@@ -1274,17 +1289,23 @@ async function trySetupHybridBackend(workspacePath: string): Promise<boolean> {
 async function main() {
 	const { workspace } = parseArgs();
 
-	// Initialize cm CLI backend
-	setCmWorkspaceRoot(workspace);
+	// Detect the cm binary first — `cm version` doesn't need a workspace root,
+	// so we can probe before constructing the PlasticContext.
 	const cmPath = await detectCm();
 	if (!cmPath) {
 		process.stderr.write('Error: cm CLI not found. Install Plastic SCM client tools.\n');
 		process.exit(1);
 	}
 
+	// Build the MCP server's PlasticContext now that we have both pieces.
+	// Tool handlers reference `mcpContext` directly via `mcpWorkspaceRoot()`
+	// and pass it through to ctx-aware helpers (isFileStale, etc.). No
+	// `setCmWorkspaceRoot` call — the context replaces the module global.
+	mcpContext = createPlasticContext({ workspaceRoot: workspace, cmPath });
+
 	const hybridReady = await trySetupHybridBackend(workspace);
 	if (!hybridReady) {
-		setBackend(new CliBackend());
+		setBackend(new CliBackend(mcpContext));
 	}
 	process.stderr.write(`BetterPSCM MCP server started (${hybridReady ? 'hybrid' : 'CLI-only'} backend, workspace: ${workspace})\n`);
 
