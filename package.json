@@ -449,6 +449,7 @@
     "watch": "node esbuild.config.mjs --watch",
     "lint": "eslint src --ext .ts",
     "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "package": "vsce package"
   },
   "dependencies": {

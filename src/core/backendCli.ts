@@ -1,7 +1,7 @@
 import { execCm, execCmToFile, getCmWorkspaceRoot } from './cmCli';
 import { readFile, unlink } from 'fs/promises';
 import { log } from '../util/logger';
-import { normalizePath } from '../util/path';
+import { normalizePath, wslToWindowsPath } from '../util/path';
 import { detectWorkspace, hasPlasticWorkspace } from '../util/plasticDetector';
 import type { PlasticBackend } from './backend';
 import type {
@@ -1119,7 +1119,8 @@ function parseStatusLine(line: string): NormalizedChange | undefined {
 	if (effectiveType === 'moved') {
 		const root = getCmWorkspaceRoot();
 		if (root) {
-			const normalizedRoot = normalizePath(root).toLowerCase();
+			// cm.exe emits Windows-form paths — translate WSL-form root if needed.
+			const normalizedRoot = normalizePath(wslToWindowsPath(root)).toLowerCase();
 			const normalizedFilePath = normalizePath(filePath).toLowerCase();
 			// Find the second occurrence of the workspace root in the path string
 			const firstIdx = normalizedFilePath.indexOf(normalizedRoot);
@@ -1158,15 +1159,20 @@ function parseStatusLine(line: string): NormalizedChange | undefined {
 /**
  * Strip the workspace root prefix from an absolute path to produce a relative path.
  * Handles both forward and back slashes, case-insensitive on Windows.
+ * Translates WSL-form roots (`/mnt/c/...`) to Windows form (`c:/...`) so paths
+ * emitted by `cm.exe` can still match when the workspace root was stored in
+ * Linux form (e.g. integration tests running from WSL Node).
  * Rejects paths that escape the workspace root (e.g., via ".." traversal).
  */
 function stripWorkspaceRoot(filePath: string): string {
 	const root = getCmWorkspaceRoot();
 	if (!root) return filePath;
 
-	// Normalize separators for comparison
+	// Normalize separators and translate WSL form to Windows form for comparison.
+	// cm.exe always emits Windows-form absolute paths, so the comparison target
+	// must also be in Windows form regardless of how the caller stored the root.
 	const normalizedPath = normalizePath(filePath);
-	const normalizedRoot = normalizePath(root).replace(/\/$/, '');
+	const normalizedRoot = normalizePath(wslToWindowsPath(root)).replace(/\/$/, '');
 
 	// Case-insensitive comparison (Windows paths)
 	if (normalizedPath.toLowerCase().startsWith(normalizedRoot.toLowerCase())) {

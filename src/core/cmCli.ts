@@ -8,6 +8,11 @@ import { log, logError } from '../util/logger';
 const CM_PATH_WIN = 'C:\\Program Files\\PlasticSCM5\\client\\cm.exe';
 const CM_PATH_UNIX = 'cm';
 
+/** Environment variable that overrides cm binary detection. Used by integration
+ *  tests running from WSL where neither `cm` is on PATH nor the Windows-only
+ *  CM_PATH_WIN resolves from the Linux filesystem. */
+const CM_PATH_ENV = 'PLASTIC_CM_PATH';
+
 let cmPath: string | undefined;
 let workspaceRoot: string | undefined;
 
@@ -30,14 +35,22 @@ export function setCmWorkspaceRoot(root: string): void {
 
 /**
  * Detect the cm CLI binary. Returns the path or undefined if not found.
+ * Resolution order:
+ *   1. PLASTIC_CM_PATH env var (explicit override)
+ *   2. Platform default (CM_PATH_WIN on Windows, `cm` on other platforms)
+ *   3. The other fallback
  */
 export async function detectCm(): Promise<string | undefined> {
 	if (cmPath) return cmPath;
 
-	// Try platform-specific path first
-	const candidates = process.platform === 'win32'
-		? [CM_PATH_WIN, 'cm']
-		: ['cm', CM_PATH_WIN];
+	const envOverride = process.env[CM_PATH_ENV];
+	const candidates: string[] = [];
+	if (envOverride) candidates.push(envOverride);
+	if (process.platform === 'win32') {
+		candidates.push(CM_PATH_WIN, CM_PATH_UNIX);
+	} else {
+		candidates.push(CM_PATH_UNIX, CM_PATH_WIN);
+	}
 
 	for (const candidate of candidates) {
 		try {
@@ -54,6 +67,15 @@ export async function detectCm(): Promise<string | undefined> {
 
 	log('cm CLI not found');
 	return undefined;
+}
+
+/**
+ * Reset the cached cm binary path. Used by integration tests that need
+ * to force re-detection after changing PLASTIC_CM_PATH, and by tests
+ * that need to start from a clean module state.
+ */
+export function resetCmPath(): void {
+	cmPath = undefined;
 }
 
 /**
