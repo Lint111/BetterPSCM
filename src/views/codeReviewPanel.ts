@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 import { coreStyles, errorStyles } from './webviewStyles';
+import { codeReviewStyles } from './panels/codeReview/styles';
+import { codeReviewClientJs } from './panels/codeReview/client';
 import {
 	getCodeReview, getReviewComments, addReviewComment,
 	updateCodeReviewStatus, updateReviewerStatus, addReviewers, removeReviewer,
@@ -151,31 +153,7 @@ export class CodeReviewPanel implements vscode.Disposable {
 <head>
 <style>
 ${coreStyles}
-.review-header { padding: 12px 16px; border-bottom: 1px solid var(--vscode-panel-border); }
-.review-title { font-size: 16px; font-weight: bold; margin-bottom: 4px; }
-.review-meta { display: flex; gap: 16px; flex-wrap: wrap; font-size: var(--font-label); color: var(--vscode-descriptionForeground); }
-.review-status { font-weight: bold; padding: 2px 8px; border-radius: 10px; font-size: var(--font-caption); }
-.section { padding: 8px 16px; }
-.section-title { font-weight: bold; font-size: var(--font-label); margin-bottom: 6px; color: var(--vscode-descriptionForeground); }
-.reviewer-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
-.reviewer-name { flex: 1; }
-.reviewer-status { font-size: var(--font-caption); }
-.reviewer-status-select { font-size: var(--font-caption); }
-.remove-reviewer-btn { background: none; border: none; color: var(--vscode-errorForeground); cursor: pointer; padding: 0 4px; }
-.comment { padding: 8px 16px; border-bottom: 1px solid var(--vscode-panel-border); }
-.comment.question { border-left: 3px solid var(--color-changed); }
-.comment-header { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
-.comment-author { font-weight: bold; font-size: var(--font-label); }
-.comment-type { font-size: var(--font-caption); }
-.comment-time { font-size: var(--font-caption); margin-left: auto; }
-.comment-location { font-size: var(--font-caption); margin-bottom: 4px; }
-.comment-body { white-space: pre-wrap; }
-.reply-btn { background: none; border: none; color: var(--vscode-textLink-foreground); cursor: pointer; font-size: var(--font-caption); padding: 4px 0; }
-.new-comment { padding: 12px 16px; border-top: 1px solid var(--vscode-panel-border); }
-.new-comment textarea { width: 100%; min-height: 60px; resize: vertical; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, transparent); padding: 6px; font-family: var(--vscode-font-family); font-size: var(--font-body); border-radius: 2px; }
-.new-comment .actions { display: flex; gap: 6px; margin-top: 6px; }
-.add-reviewer-row { display: flex; gap: 4px; margin-top: 6px; }
-.add-reviewer-row input { flex: 1; }
+${codeReviewStyles}
 </style>
 </head>
 <body style="overflow-y:auto;">
@@ -230,51 +208,7 @@ ${coreStyles}
 
 	<script>
 		const vscode = acquireVsCodeApi();
-
-		document.getElementById('statusBtn').addEventListener('click', () => {
-			const status = document.getElementById('statusSelect').value;
-			vscode.postMessage({ type: 'changeStatus', status });
-		});
-
-		document.getElementById('submitCommentBtn').addEventListener('click', () => {
-			const input = document.getElementById('commentInput');
-			const text = input.value.trim();
-			if (!text) return;
-			vscode.postMessage({ type: 'addComment', text });
-			input.value = '';
-		});
-
-		document.getElementById('addReviewerBtn').addEventListener('click', () => {
-			const input = document.getElementById('newReviewerInput');
-			const reviewer = input.value.trim();
-			if (!reviewer) return;
-			vscode.postMessage({ type: 'addReviewer', reviewer });
-			input.value = '';
-		});
-
-		document.querySelectorAll('.reviewer-status-select').forEach(sel => {
-			sel.addEventListener('change', (e) => {
-				const reviewer = e.target.dataset.reviewer;
-				vscode.postMessage({ type: 'changeReviewerStatus', reviewer, status: e.target.value });
-			});
-		});
-
-		document.querySelectorAll('.remove-reviewer-btn').forEach(btn => {
-			btn.addEventListener('click', (e) => {
-				const reviewer = e.target.dataset.reviewer;
-				vscode.postMessage({ type: 'removeReviewer', reviewer });
-			});
-		});
-
-		document.querySelectorAll('.reply-btn').forEach(btn => {
-			btn.addEventListener('click', (e) => {
-				const parentId = parseInt(e.target.dataset.commentId);
-				const text = prompt('Reply:');
-				if (text) {
-					vscode.postMessage({ type: 'addComment', text, parentId });
-				}
-			});
-		});
+		${codeReviewClientJs}
 	</script>
 </body>
 </html>`;

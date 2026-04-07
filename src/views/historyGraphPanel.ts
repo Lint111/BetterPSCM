@@ -6,6 +6,8 @@ import { buildPlasticUri } from '../util/uri';
 import { LruCache, TtlCache } from '../util/cache';
 import { getWorkspaceGuid } from '../api/client';
 import { coreStyles, errorStyles } from './webviewStyles';
+import { historyGraphStyles } from './panels/historyGraph/styles';
+import { historyGraphClientJs } from './panels/historyGraph/client';
 import { escapeHtml } from '../util/html';
 import { GRAPH_CACHE_TTL_MS } from '../constants';
 import type { ChangesetInfo, ChangesetDiffItem, StatusChangeType } from '../core/types';
@@ -810,68 +812,10 @@ export class HistoryGraphViewProvider implements vscode.WebviewViewProvider, vsc
 <html><head><meta charset="UTF-8">
 <style>
 ${coreStyles}
-/* ── History graph view-specific styles ── */
+/* Dynamic rule — depends on the computed row height. The rest of the
+   history-graph CSS lives in panels/historyGraph/styles.ts. */
 .graph-wrapper { position: relative; min-height: ${totalHeight}px; }
-.graph-svg { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 1; }
-.graph-col { flex-shrink: 0; }
-.info-col {
-	flex: 1; min-width: 0; padding: 2px 6px;
-	display: flex; flex-direction: column; justify-content: center; gap: 1px;
-	border-bottom: 1px solid var(--vscode-list-hoverBackground);
-}
-.row { display: flex; align-items: center; cursor: pointer; }
-.row:hover .info-col, .row.hovered .info-col { background: var(--vscode-list-hoverBackground); }
-.row.selected .info-col { background: var(--selection-bg); border-left: 3px solid var(--selection-border); }
-.row.selected:hover .info-col, .row.selected.hovered .info-col { background: var(--selection-bg-hover); }
-.row.selected .comment { color: #fff; }
-.row.selected .meta { color: #ccc; }
-.comment { font-size: var(--font-body); }
-.meta { display: flex; align-items: center; gap: 6px; font-size: var(--font-caption); }
-.cs-id { opacity: 0.7; }
-.owner { max-width: 80px; }
-.date { white-space: nowrap; }
-/* SVG dot interactions */
-.graph-svg circle { pointer-events: all; transition: r 0.15s ease, filter 0.15s ease; cursor: pointer; }
-.graph-svg circle:hover, .graph-svg circle.hovered { r: 7; filter: drop-shadow(0 0 3px currentColor); }
-circle.selected-dot { filter: drop-shadow(0 0 4px var(--selection-border)); stroke: var(--selection-border) !important; stroke-width: 2 !important; }
-/* File list items use shared .list-item + .change-type */
-.panel .panel-title { display: flex; align-items: center; }
-.file-item { gap: 6px; padding: 2px 8px; font-size: var(--font-label); }
-.file-item.is-folder { cursor: default; opacity: 0.75; }
-.file-item.search-match { background: var(--vscode-editor-findMatchHighlightBackground, rgba(234, 92, 0, 0.33)); box-shadow: inset 2px 0 0 var(--vscode-editor-findMatchBorder, #ea5c00); }
-.file-item.search-match:hover { background: var(--vscode-editor-findMatchBackground, rgba(234, 92, 0, 0.5)); }
-.file-item .entry-letter { min-width: 18px; text-align: center; font-weight: bold; font-size: 10px; }
-.file-item .folder-glyph { opacity: 0.8; }
-.file-path { font-family: var(--vscode-editor-font-family); }
-/* Search bar + filter pill */
-.search-row {
-	display: flex; align-items: center; gap: 4px; padding: 4px 6px;
-	border-bottom: 1px solid var(--vscode-panel-border);
-}
-.search-row input[type="text"] {
-	flex: 1; min-width: 0; padding: 2px 6px;
-	background: var(--vscode-input-background);
-	color: var(--vscode-input-foreground);
-	border: 1px solid var(--vscode-input-border, transparent);
-	font-size: var(--font-label);
-	font-family: inherit;
-}
-.search-row input[type="text"]:focus {
-	outline: 1px solid var(--vscode-focusBorder);
-	border-color: var(--vscode-focusBorder);
-}
-.search-row button { padding: 2px 6px; font-size: 11px; }
-.search-row button.pinned { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
-.filter-pill {
-	display: flex; align-items: center; gap: 6px;
-	padding: 3px 8px; margin: 4px 6px;
-	background: var(--vscode-list-hoverBackground);
-	border-left: 3px solid var(--selection-border, #007fd4);
-	font-size: var(--font-label);
-}
-.filter-pill .pill-label { flex: 1; min-width: 0; }
-.filter-pill .pill-close { cursor: pointer; padding: 0 4px; opacity: 0.7; }
-.filter-pill .pill-close:hover { opacity: 1; }
+${historyGraphStyles}
 </style></head>
 <body>
 <div class="progress-bar" id="progressBar"></div>
@@ -916,237 +860,16 @@ ${nodes.length === 0
 <script>
 const vscode = acquireVsCodeApi();
 let selectedRow = null;
-// Decoration lookup mirrors the native SCM panel — keeps the two views
-// visually consistent. Keys: '<changeType>' for files, '<changeType>:folder'
-// for directory entries.
-const DECO = ${decorationLookupJson};
 let showFolders = true;
 let lastFilesPayload = null;
+// Decoration lookup + search state — interpolated from the extension side.
+// The static body below (panels/historyGraph/client.ts) references these
+// top-level consts but does not declare them.
+const DECO = ${decorationLookupJson};
 const searchPattern = ${JSON.stringify(search.pattern ?? '').replace(/</g, '\\u003c')};
 const searchPatternLc = searchPattern.toLowerCase();
 
-function showLoading() {
-	document.getElementById('progressBar').classList.add('active');
-}
-document.getElementById('refreshBtn').addEventListener('click', () => {
-	showLoading();
-	vscode.postMessage({ command: 'refresh' });
-});
-document.getElementById('focusBtn').addEventListener('click', () => {
-	showLoading();
-	vscode.postMessage({ command: 'focusCurrentBranch' });
-});
-document.getElementById('allBtn').addEventListener('click', () => {
-	showLoading();
-	vscode.postMessage({ command: 'filterBranch', branch: '' });
-});
-
-// ── File-scoped history filter ──────────────────────────────────
-// Enter in the search input runs a filter. Empty string clears it.
-// The pin button toggles follow-active-editor; its state is persisted
-// in workspace config (bpscm.graph.followActiveFile).
-const searchInput = document.getElementById('searchInput');
-if (searchInput) {
-	searchInput.addEventListener('keydown', (e) => {
-		if (e.key === 'Enter') {
-			const q = searchInput.value.trim();
-			showLoading();
-			if (q.length === 0) {
-				vscode.postMessage({ command: 'clearSearch' });
-			} else {
-				vscode.postMessage({ command: 'search', query: q });
-			}
-		} else if (e.key === 'Escape') {
-			searchInput.value = '';
-			showLoading();
-			vscode.postMessage({ command: 'clearSearch' });
-		}
-	});
-}
-const pinBtn = document.getElementById('pinBtn');
-if (pinBtn) {
-	pinBtn.addEventListener('click', () => {
-		vscode.postMessage({ command: 'toggleFollow' });
-	});
-}
-const clearFilterBtn = document.getElementById('clearFilterBtn');
-if (clearFilterBtn) {
-	clearFilterBtn.addEventListener('click', () => {
-		showLoading();
-		vscode.postMessage({ command: 'clearSearch' });
-	});
-}
-
-// Cross-hover: row ↔ dot
-const allRowsList = document.querySelectorAll('.row');
-const allDots = document.querySelectorAll('.graph-svg circle');
-allDots.forEach(dot => { dot.dataset.origR = dot.getAttribute('r') || '4'; });
-allRowsList.forEach((row, idx) => {
-	row.addEventListener('mouseenter', () => {
-		if (idx < allDots.length) { allDots[idx].classList.add('hovered'); allDots[idx].setAttribute('r', '7'); }
-	});
-	row.addEventListener('mouseleave', () => {
-		if (idx < allDots.length && !allDots[idx].classList.contains('selected-dot')) {
-			allDots[idx].classList.remove('hovered');
-			allDots[idx].setAttribute('r', allDots[idx].dataset.origR || '4');
-		}
-	});
-});
-allDots.forEach((dot, idx) => {
-	dot.addEventListener('mouseenter', () => {
-		if (idx < allRowsList.length) allRowsList[idx].classList.add('hovered');
-	});
-	dot.addEventListener('mouseleave', () => {
-		if (idx < allRowsList.length) allRowsList[idx].classList.remove('hovered');
-	});
-});
-
-// Click on commit row → request changeset files
-document.querySelectorAll('.row').forEach(row => {
-	row.addEventListener('click', () => {
-		if (selectedRow) {
-			selectedRow.classList.remove('selected');
-			const prevInfo = selectedRow.querySelector('.info-col');
-			if (prevInfo) { prevInfo.style.background = ''; prevInfo.style.borderLeft = ''; }
-			// Reset previous SVG dot
-			const prevDot = document.querySelector('.graph-svg circle.selected-dot');
-			if (prevDot) { prevDot.classList.remove('selected-dot'); prevDot.setAttribute('r', prevDot.dataset.origR || '4'); }
-		}
-		row.classList.add('selected');
-		const infoCol = row.querySelector('.info-col');
-		if (infoCol) { infoCol.style.background = 'rgba(0, 120, 212, 0.3)'; infoCol.style.borderLeft = '3px solid #007fd4'; }
-		// Highlight the SVG dot for this row
-		const rowIdx = Array.from(document.querySelectorAll('.row')).indexOf(row);
-		const dots = document.querySelectorAll('.graph-svg circle');
-		if (rowIdx >= 0 && rowIdx < dots.length) {
-			const dot = dots[rowIdx];
-			dot.dataset.origR = dot.getAttribute('r') || '4';
-			dot.classList.add('selected-dot');
-			dot.setAttribute('r', '7');
-		}
-		selectedRow = row;
-		const csId = parseInt(row.dataset.cs);
-		const parentId = parseInt(row.dataset.parent);
-		document.getElementById('filePanel').style.display = '';
-		document.getElementById('filePanelTitle').textContent = 'Loading changeset #' + csId + '...';
-		document.getElementById('fileList').innerHTML = '<div class="loading">Loading...</div>';
-		vscode.postMessage({ command: 'selectChangeset', changesetId: csId, parentId: parentId });
-	});
-});
-
-// Click on SVG dot → trigger corresponding row click
-const allRows = document.querySelectorAll('.row');
-document.querySelectorAll('.graph-svg circle').forEach((dot, idx) => {
-	dot.addEventListener('click', () => {
-		if (idx < allRows.length) allRows[idx].click();
-	});
-});
-
-// Receive messages from extension
-window.addEventListener('message', event => {
-	const msg = event.data;
-	if (msg.command === 'loading') {
-		const bar = document.getElementById('progressBar');
-		if (msg.active) { bar.classList.add('active'); } else { bar.classList.remove('active'); }
-		return;
-	}
-	if (msg.command === 'changesetFiles') {
-		lastFilesPayload = msg;
-		renderFileList();
-	}
-});
-
-// Mirror of the shared shouldOpenDiff rule — folders never open a diff view.
-function shouldOpenDiff(f) { return !isFolderEntry(f); }
-function isFolderEntry(f) { return !!f.isDirectory; }
-
-function renderFileList() {
-	if (!lastFilesPayload) return;
-	const msg = lastFilesPayload;
-	const panel = document.getElementById('filePanel');
-	const list = document.getElementById('fileList');
-	const title = document.getElementById('filePanelTitle');
-	panel.style.display = '';
-
-	if (msg.error) {
-		title.textContent = 'Changeset #' + msg.changesetId + ' (error)';
-		list.innerHTML = '<div class="empty">' + escHtml(msg.error) + '</div>';
-		return;
-	}
-
-	const allFiles = msg.files || [];
-	let files = showFolders ? allFiles : allFiles.filter(f => !isFolderEntry(f));
-	if (searchPatternLc.length > 0) {
-		// Float matches to the top so the reason this changeset showed up is obvious.
-		files = files.slice().sort((a, b) => {
-			const am = a.path.toLowerCase().indexOf(searchPatternLc) !== -1 ? 0 : 1;
-			const bm = b.path.toLowerCase().indexOf(searchPatternLc) !== -1 ? 0 : 1;
-			return am - bm;
-		});
-	}
-	const folderCount = allFiles.length - allFiles.filter(f => !isFolderEntry(f)).length;
-	const suffix = folderCount > 0 && !showFolders ? ' (' + folderCount + ' folder(s) hidden)' : '';
-	title.textContent = 'Changeset #' + msg.changesetId + ' — ' + files.length + ' file(s)' + suffix;
-
-	if (files.length === 0) {
-		list.innerHTML = '<div class="empty">No files found</div>';
-		return;
-	}
-
-	list.innerHTML = files.map(f => {
-		const key = f.type + (isFolderEntry(f) ? ':folder' : '');
-		const deco = DECO[key] || DECO[f.type] || { letter: '?', tooltip: f.type, strikeThrough: false, colorId: 'foreground' };
-		const shortPath = f.path.split('/').slice(-2).join('/');
-		const isDir = isFolderEntry(f);
-		const isMatch = searchPatternLc.length > 0 && f.path.toLowerCase().indexOf(searchPatternLc) !== -1;
-		const classes = 'list-item file-item' + (isDir ? ' is-folder' : '') + (isMatch ? ' search-match' : '');
-		const strike = deco.strikeThrough ? 'text-decoration:line-through;' : '';
-		// Color the change-type letter using the shared VS Code theme color var.
-		// The native SCM panel uses a ThemeIcon with the same color id — same
-		// visual semantics, different container.
-		const colorVar = 'var(--vscode-' + deco.colorId.replace(/\\./g, '-') + ')';
-		const letterHtml = '<span class="entry-letter" style="color:' + colorVar + '">' + escHtml(deco.letter) + '</span>';
-		const folderGlyph = isDir ? '<span class="folder-glyph">📁</span>' : '';
-		return '<div class="' + classes + '" data-path="' + escHtml(f.path) + '" data-cs="' + msg.changesetId + '" data-parent="' + msg.parentId + '" data-folder="' + (isDir ? '1' : '0') + '" title="' + escHtml(deco.tooltip + ' — ' + f.path) + '">' +
-			letterHtml +
-			folderGlyph +
-			'<span class="file-path truncate" style="' + strike + 'color:' + colorVar + '">' + escHtml(shortPath) + '</span>' +
-			'</div>';
-	}).join('');
-
-	// Click file → open diff (folders are skipped via shouldOpenDiff — unified rule).
-	let selectedFile = null;
-	list.querySelectorAll('.file-item').forEach(item => {
-		const isDir = item.dataset.folder === '1';
-		if (isDir) return; // shouldOpenDiff === false
-		item.addEventListener('click', () => {
-			if (selectedFile) selectedFile.classList.remove('selected');
-			item.classList.add('selected');
-			selectedFile = item;
-			vscode.postMessage({
-				command: 'openDiff',
-				changesetId: parseInt(item.dataset.cs),
-				parentId: parseInt(item.dataset.parent),
-				path: item.dataset.path,
-			});
-		});
-	});
-}
-
-// Folder-visibility toggle — lets the user hide directory entries from the
-// historic changeset list. State is re-applied to the last-loaded changeset
-// so the user can toggle without reclicking the row.
-document.getElementById('toggleFoldersBtn').addEventListener('click', () => {
-	showFolders = !showFolders;
-	const btn = document.getElementById('toggleFoldersBtn');
-	btn.classList.toggle('active', showFolders);
-	btn.title = showFolders ? 'Hide folder entries' : 'Show folder entries';
-	renderFileList();
-});
-
-function escHtml(s) {
-	return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
+${historyGraphClientJs}
 </script>
 </body></html>`;
 	}
