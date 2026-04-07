@@ -109,6 +109,52 @@ export function createMockMemento(initial: Record<string, unknown> = {}): any {
 
 // --- window ---
 
+/**
+ * Build a mock WebviewPanel that records onDidDispose / onDidReceiveMessage
+ * listeners so tests can simulate VS Code firing them. Returns the same
+ * object shape that `vscode.window.createWebviewPanel` produces in production.
+ */
+function createMockWebviewPanel(viewType: string, title: string) {
+	const disposeListeners: Array<() => void> = [];
+	const messageListeners: Array<(msg: unknown) => void> = [];
+	let disposed = false;
+
+	return {
+		viewType,
+		title,
+		visible: true,
+		webview: {
+			// Plain data property — production code reads/writes `panel.webview.html`
+			// directly. The mock just needs to record whatever the test assigns.
+			html: '',
+			onDidReceiveMessage: vi.fn((listener: (msg: unknown) => void) => {
+				messageListeners.push(listener);
+				return { dispose: () => { /* no-op for mock */ } };
+			}),
+			postMessage: vi.fn(),
+			asWebviewUri: vi.fn((uri: any) => uri),
+		},
+		onDidDispose: vi.fn((listener: () => void) => {
+			disposeListeners.push(listener);
+			return { dispose: () => { /* no-op for mock */ } };
+		}),
+		onDidChangeViewState: vi.fn(() => ({ dispose: vi.fn() })),
+		reveal: vi.fn(),
+		dispose: vi.fn(() => {
+			if (disposed) return;
+			disposed = true;
+			for (const l of disposeListeners) l();
+		}),
+		// Test helpers — not part of vscode.WebviewPanel API
+		_simulateMessage(msg: unknown) {
+			for (const l of messageListeners) l(msg);
+		},
+		_isDisposed() {
+			return disposed;
+		},
+	};
+}
+
 export const window = {
 	showInformationMessage: vi.fn(),
 	showWarningMessage: vi.fn(),
@@ -117,6 +163,9 @@ export const window = {
 	showQuickPick: vi.fn(),
 	registerTreeDataProvider: vi.fn(),
 	registerWebviewViewProvider: vi.fn(),
+	createWebviewPanel: vi.fn((viewType: string, title: string, _column: any, _options?: any) => {
+		return createMockWebviewPanel(viewType, title);
+	}),
 	withProgress: vi.fn(async (_opts: any, task: any) => task({ report: vi.fn() })),
 	createOutputChannel: vi.fn(() => ({
 		appendLine: vi.fn(),
@@ -136,6 +185,10 @@ export const window = {
 		dispose: vi.fn(),
 	})),
 };
+
+// --- ViewColumn ---
+
+export const ViewColumn = { Active: -1, Beside: -2, One: 1, Two: 2, Three: 3 } as const;
 
 // --- workspace ---
 

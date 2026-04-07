@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { coreStyles, errorStyles } from './webviewStyles';
 import { codeReviewStyles } from './panels/codeReview/styles';
 import { codeReviewClientJs } from './panels/codeReview/client';
+import { BetterPanel } from './panels/betterPanel';
 import {
 	getCodeReview, getReviewComments, addReviewComment,
 	updateCodeReviewStatus, updateReviewerStatus, addReviewers, removeReviewer,
@@ -11,48 +12,35 @@ import { escapeHtml } from '../util/html';
 import type { CodeReviewInfo, ReviewCommentInfo, ReviewStatus } from '../core/types';
 import { formatDateTime } from '../util/date';
 
-export class CodeReviewPanel implements vscode.Disposable {
+export class CodeReviewPanel extends BetterPanel {
 	static readonly viewType = 'bpscm.codeReviewPanel';
 	private static panels = new Map<number, CodeReviewPanel>();
 
-	private readonly panel: vscode.WebviewPanel;
 	private reviewId: number;
-	private disposables: vscode.Disposable[] = [];
-	private _disposed = false;
 
 	static open(reviewId: number, extensionUri: vscode.Uri): void {
 		const existing = CodeReviewPanel.panels.get(reviewId);
 		if (existing) {
-			existing.panel.reveal();
+			existing.reveal();
 			existing.loadReview();
 			return;
 		}
 		new CodeReviewPanel(reviewId, extensionUri);
 	}
 
-	private constructor(reviewId: number, extensionUri: vscode.Uri) {
+	private constructor(reviewId: number, _extensionUri: vscode.Uri) {
+		super({
+			viewType: CodeReviewPanel.viewType,
+			title: `Review #${reviewId}`,
+			viewColumn: vscode.ViewColumn.One,
+		});
 		this.reviewId = reviewId;
-		this.panel = vscode.window.createWebviewPanel(
-			CodeReviewPanel.viewType,
-			`Review #${reviewId}`,
-			vscode.ViewColumn.One,
-			{ enableScripts: true, retainContextWhenHidden: true },
-		);
-
 		CodeReviewPanel.panels.set(reviewId, this);
-
-		this.panel.onDidDispose(() => {
-			CodeReviewPanel.panels.delete(reviewId);
-			this.dispose();
-		}, null, this.disposables);
-
-		this.panel.webview.onDidReceiveMessage(
-			msg => this.handleMessage(msg),
-			null,
-			this.disposables,
-		);
-
 		this.loadReview();
+	}
+
+	protected override onPanelDispose(): void {
+		CodeReviewPanel.panels.delete(this.reviewId);
 	}
 
 	private async loadReview(): Promise<void> {
@@ -70,7 +58,7 @@ export class CodeReviewPanel implements vscode.Disposable {
 		}
 	}
 
-	private async handleMessage(msg: any): Promise<void> {
+	protected override async handleMessage(msg: any): Promise<void> {
 		try {
 			switch (msg.type) {
 				case 'addComment': {
@@ -222,11 +210,6 @@ ${codeReviewStyles}
 		</body></html>`;
 	}
 
-	dispose(): void {
-		if (this._disposed) return;
-		this._disposed = true;
-		this.disposables.forEach(d => d.dispose());
-		this.panel.dispose();
-	}
+	// dispose() inherited from BetterPanel
 }
 

@@ -3,20 +3,19 @@ import { coreStyles } from './webviewStyles';
 import { escapeHtml } from '../util/html';
 import { log, logError } from '../util/logger';
 import { getBackend } from '../core/backend';
+import { BetterPanel } from './panels/betterPanel';
 import type { ResolvedComment } from '../core/types';
 import { normalizePath } from '../util/path';
 
-export class ReviewSnippetPanel implements vscode.Disposable {
+export class ReviewSnippetPanel extends BetterPanel {
 	static readonly viewType = 'bpscm.reviewSnippetPanel';
 	private static instance: ReviewSnippetPanel | undefined;
 
-	private readonly panel: vscode.WebviewPanel;
-	private disposables: vscode.Disposable[] = [];
 	private currentComment: ResolvedComment | undefined;
 
 	static async show(comment: ResolvedComment, extensionUri: vscode.Uri, contextLines = 5): Promise<void> {
 		if (ReviewSnippetPanel.instance) {
-			ReviewSnippetPanel.instance.panel.reveal();
+			ReviewSnippetPanel.instance.reveal();
 			await ReviewSnippetPanel.instance.loadSnippet(comment, contextLines);
 			return;
 		}
@@ -24,29 +23,20 @@ export class ReviewSnippetPanel implements vscode.Disposable {
 		await inst.loadSnippet(comment, contextLines);
 	}
 
-	private constructor(extensionUri: vscode.Uri) {
-		this.panel = vscode.window.createWebviewPanel(
-			ReviewSnippetPanel.viewType,
-			'Review Comment',
-			vscode.ViewColumn.One,
-			{ enableScripts: true, retainContextWhenHidden: true },
-		);
-
+	private constructor(_extensionUri: vscode.Uri) {
+		super({
+			viewType: ReviewSnippetPanel.viewType,
+			title: 'Review Comment',
+			viewColumn: vscode.ViewColumn.One,
+		});
 		ReviewSnippetPanel.instance = this;
-
-		this.panel.onDidDispose(() => {
-			ReviewSnippetPanel.instance = undefined;
-			this.dispose();
-		}, null, this.disposables);
-
-		this.panel.webview.onDidReceiveMessage(
-			msg => this.handleMessage(msg),
-			null,
-			this.disposables,
-		);
 	}
 
-	private async handleMessage(msg: any): Promise<void> {
+	protected override onPanelDispose(): void {
+		ReviewSnippetPanel.instance = undefined;
+	}
+
+	protected override async handleMessage(msg: any): Promise<void> {
 		if (msg.type === 'showMore' && this.currentComment) {
 			await this.loadSnippet(this.currentComment, msg.contextLines);
 		} else if (msg.type === 'goToFile' && this.currentComment) {
@@ -181,8 +171,5 @@ ${coreStyles}
 			<pre>${escapeHtml(msg)}</pre></div></body></html>`;
 	}
 
-	dispose(): void {
-		this.disposables.forEach(d => d.dispose());
-		this.panel.dispose();
-	}
+	// dispose() inherited from BetterPanel
 }
