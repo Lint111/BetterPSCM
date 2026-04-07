@@ -1,9 +1,16 @@
-import { execCm, execCmToFile, getCmWorkspaceRoot } from './cmCli';
+import {
+	execCm,
+	execCmToFile,
+	execCmWithContext,
+	execCmToFileWithContext,
+	getCmWorkspaceRoot,
+} from './cmCli';
 import { readFile, unlink } from 'fs/promises';
 import { log } from '../util/logger';
 import { normalizePath, wslToWindowsPath } from '../util/path';
 import { detectWorkspace, hasPlasticWorkspace } from '../util/plasticDetector';
 import type { PlasticBackend } from './backend';
+import type { PlasticContext } from './context';
 import type {
 	StatusResult,
 	CheckinResult,
@@ -49,12 +56,46 @@ const CM_CHANGE_TYPE_MAP: Record<string, StatusChangeType> = {
 /**
  * PlasticBackend implementation using the local `cm` CLI executable.
  * Handles all workspace-level operations by shelling out to the cm command.
+ *
+ * Optionally accepts a PlasticContext — when provided, every internal cm
+ * invocation runs scoped to that context rather than the module-level
+ * cmPath/workspaceRoot globals. This is what enables parallel workspaces
+ * and isolated integration tests.
  */
 export class CliBackend implements PlasticBackend {
 	readonly name = 'cm CLI';
 
+	constructor(private readonly ctx?: PlasticContext) {}
+
+	/**
+	 * Run a cm command — routes through the instance context when present,
+	 * falls back to the module-level execCm otherwise. Avoids passing
+	 * `undefined` as the maxBuffer arg so vi.fn() call assertions in unit
+	 * tests that don't care about buffer sizing still match exactly.
+	 */
+	private _execCm(args: string[], maxBuffer?: number) {
+		if (this.ctx) {
+			return maxBuffer !== undefined
+				? execCmWithContext(this.ctx, args, maxBuffer)
+				: execCmWithContext(this.ctx, args);
+		}
+		return maxBuffer !== undefined ? execCm(args, maxBuffer) : execCm(args);
+	}
+
+	/** Stream cm cat output to a temp file — context-aware variant. */
+	private _execCmToFile(args: string[]) {
+		return this.ctx
+			? execCmToFileWithContext(this.ctx, args)
+			: execCmToFile(args);
+	}
+
+	/** Return the workspace root for this backend instance. */
+	private _workspaceRoot(): string | undefined {
+		return this.ctx?.workspaceRoot ?? getCmWorkspaceRoot();
+	}
+
 	async getStatus(showPrivate: boolean): Promise<StatusResult> {
-		const result = await execCm(['status', '--machinereadable', '--all']);
+		const result = await this._execCm(['status', '--machinereadable', '--all']);
 		if (result.exitCode !== 0) {
 			throw new Error(`cm status failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
 		}
@@ -65,9 +106,10 @@ export class CliBackend implements PlasticBackend {
 		// Summary-only logging to avoid flooding output on large changesets
 		log(`[cm status] ${lines.length} raw lines`);
 
+		const scopedRoot = this._workspaceRoot();
 		for (const line of lines) {
 			if (line.startsWith('STATUS ')) continue;
-			const parsed = parseStatusLine(line);
+			const parsed = parseStatusLine(line, scopedRoot);
 			if (!parsed) {
 				log(`[cm status] UNPARSED: "${line}"`);
 				continue;
@@ -81,7 +123,7 @@ export class CliBackend implements PlasticBackend {
 
 	async getCurrentBranch(): Promise<string | undefined> {
 		// Primary: read from .plastic/plastic.selector (always up to date)
-		const wsRoot = getCmWorkspaceRoot();
+		const wsRoot = this._workspaceRoot();
 		if (wsRoot && hasPlasticWorkspace(wsRoot)) {
 			const info = detectWorkspace(wsRoot);
 			if (info?.currentBranch) {
@@ -91,13 +133,13 @@ export class CliBackend implements PlasticBackend {
 
 		// Fallback: cm find changeset with the current changeset id
 		try {
-			const wiResult = await execCm(['wi', '--machinereadable']);
+			const wiResult = await this._execCm(['wi', '--machinereadable']);
 			if (wiResult.exitCode === 0) {
 				// Output: "CS <id> ..." — extract changeset id and query its branch
 				const csMatch = wiResult.stdout.match(/^CS\s+(\d+)/);
 				if (csMatch) {
 					const csId = csMatch[1];
-					const brResult = await execCm([
+					const brResult = await this._execCm([
 						'find', 'changeset',
 						`where changesetid=${csId}`,
 						'--format={branch}',
@@ -122,7 +164,7 @@ export class CliBackend implements PlasticBackend {
 
 	async checkin(paths: string[], comment: string): Promise<CheckinResult> {
 		const args = ['checkin', `-c=${comment}`, '--machinereadable', ...paths];
-		const result = await execCm(args);
+		const result = await this._execCm(args);
 
 		if (result.exitCode !== 0) {
 			throw new Error(`cm checkin failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
@@ -194,7 +236,7 @@ export class CliBackend implements PlasticBackend {
 
 		if (useStreaming) {
 			log(`[catRevision] streaming ${catArg} (${ext})`);
-			const tempPath = await execCmToFile(['cat', catArg, '--raw']);
+			const tempPath = await this._execCmToFile(['cat', catArg, '--raw']);
 			if (tempPath) {
 				try {
 					const data = await readFile(tempPath);
@@ -208,7 +250,7 @@ export class CliBackend implements PlasticBackend {
 		}
 
 		// Standard buffered path (10MB is enough for code/text files)
-		const result = await execCm(['cat', catArg, '--raw'], 10 * 1024 * 1024);
+		const result = await this._execCm(['cat', catArg, '--raw'], 10 * 1024 * 1024);
 		if (result.exitCode === 0) {
 			return Buffer.from(result.stdout, 'binary');
 		}
@@ -253,7 +295,7 @@ export class CliBackend implements PlasticBackend {
 	 */
 	private async queryRevisionId(whereClause: string): Promise<string | undefined> {
 		for (const fmt of ['{id}', '{revisionid}', '{revid}']) {
-			const result = await execCm([
+			const result = await this._execCm([
 				'find', 'revision', whereClause, `--format=${fmt}`, '--nototal',
 			]);
 			if (result.exitCode === 0) {
@@ -269,7 +311,7 @@ export class CliBackend implements PlasticBackend {
 	}
 
 	async listBranches(): Promise<BranchInfo[]> {
-		const result = await execCm([
+		const result = await this._execCm([
 			'find', 'branch',
 			'--format={name}#{id}#{owner}#{date}#{comment}',
 			'--dateformat=yyyy-MM-ddTHH:mm:ssK',
@@ -288,7 +330,7 @@ export class CliBackend implements PlasticBackend {
 		if (comment) {
 			args.push(`-c=${comment}`);
 		}
-		const result = await execCm(args);
+		const result = await this._execCm(args);
 		if (result.exitCode !== 0) {
 			throw new Error(`cm branch create failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
 		}
@@ -305,7 +347,7 @@ export class CliBackend implements PlasticBackend {
 	}
 
 	async deleteBranch(branchId: number): Promise<void> {
-		const result = await execCm(['branch', 'delete', String(branchId)]);
+		const result = await this._execCm(['branch', 'delete', String(branchId)]);
 		if (result.exitCode !== 0) {
 			throw new Error(`cm branch delete failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
 		}
@@ -313,7 +355,7 @@ export class CliBackend implements PlasticBackend {
 	}
 
 	async switchBranch(branchName: string): Promise<void> {
-		const result = await execCm(['switch', `br:${branchName}`]);
+		const result = await this._execCm(['switch', `br:${branchName}`]);
 		if (result.exitCode !== 0) {
 			throw new Error(`cm switch failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
 		}
@@ -332,7 +374,7 @@ export class CliBackend implements PlasticBackend {
 			'--dateformat=yyyy-MM-ddTHH:mm:ssK',
 			'--nototal',
 		];
-		const result = await execCm(args);
+		const result = await this._execCm(args);
 		if (result.exitCode !== 0) {
 			// If {parent} field is unsupported, fall back without it
 			if (result.stderr?.includes('parent') || result.stdout?.includes('parent')) {
@@ -348,7 +390,7 @@ export class CliBackend implements PlasticBackend {
 	async listMerges(): Promise<MergeLink[]> {
 		// `cm find merge` returns one row per merge link with the src/dst changeset
 		// IDs (user-facing numbers, same scale as {changesetid}).
-		const result = await execCm([
+		const result = await this._execCm([
 			'find', 'merge',
 			'--format={srcchangeset}#{dstchangeset}',
 			'--nototal',
@@ -377,7 +419,7 @@ export class CliBackend implements PlasticBackend {
 			'--dateformat=yyyy-MM-ddTHH:mm:ssK',
 			'--nototal',
 		];
-		const result = await execCm(args);
+		const result = await this._execCm(args);
 		if (result.exitCode !== 0) {
 			throw new Error(`cm find changeset failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
 		}
@@ -387,7 +429,7 @@ export class CliBackend implements PlasticBackend {
 	}
 
 	async updateWorkspace(): Promise<UpdateResult> {
-		const result = await execCm(['update', '--machinereadable']);
+		const result = await this._execCm(['update', '--machinereadable']);
 		if (result.exitCode !== 0) {
 			const output = result.stderr || result.stdout;
 			// Check for conflicts
@@ -420,7 +462,7 @@ export class CliBackend implements PlasticBackend {
 		log(`[getChangesetDiff] cs=${changesetId}, parent=${parentId}`);
 
 		// Try cm diff cs:<parent> cs:<changeset> --machinereadable
-		const result = await execCm([
+		const result = await this._execCm([
 			'diff', `cs:${parentId}`, `cs:${changesetId}`, '--machinereadable',
 		]);
 
@@ -439,7 +481,7 @@ export class CliBackend implements PlasticBackend {
 
 		// Fallback 1: try cm diff with alternative format flags
 		// NOTE: always use --machinereadable to prevent GUI diff viewer launch
-		const result2 = await execCm(['diff', `cs:${parentId}`, `cs:${changesetId}`, '--machinereadable', '--repositorypaths']);
+		const result2 = await this._execCm(['diff', `cs:${parentId}`, `cs:${changesetId}`, '--machinereadable', '--repositorypaths']);
 		if (result2.exitCode === 0 && result2.stdout.trim().length > 0) {
 			log(`[getChangesetDiff] cm diff (alt flags) raw output (first 500): ${result2.stdout.substring(0, 500)}`);
 			const items = parseDiffOutput(result2.stdout);
@@ -462,7 +504,7 @@ export class CliBackend implements PlasticBackend {
 	 */
 	private async tagDirectories(changesetId: number, items: ChangesetDiffItem[]): Promise<void> {
 		try {
-			const result = await execCm([
+			const result = await this._execCm([
 				'find', 'revision',
 				`where changeset=${changesetId}`,
 				'--format={path}#{type}',
@@ -510,7 +552,7 @@ export class CliBackend implements PlasticBackend {
 			.filter(p => p.length > 0);
 		if (raw.length === 0) return [];
 
-		const wsRoot = getCmWorkspaceRoot();
+		const wsRoot = this._workspaceRoot();
 		const relPaths = raw.map(p => this.toWorkspaceRelativeObjectspec(p, wsRoot)).filter((p): p is string => !!p);
 		if (relPaths.length === 0) {
 			log(`[findChangesetsTouchingPath] no paths could be resolved relative to workspace root`);
@@ -531,7 +573,7 @@ export class CliBackend implements PlasticBackend {
 			'--dateformat=yyyy-MM-ddTHH:mm:ssK',
 			'--nototal',
 		];
-		const result = await execCm(args);
+		const result = await this._execCm(args);
 		if (result.exitCode !== 0) {
 			log(`[findChangesetsTouchingPath] cm find revision failed (exit ${result.exitCode}): ${result.stderr.substring(0, 300)}`);
 			return [];
@@ -571,7 +613,7 @@ export class CliBackend implements PlasticBackend {
 	}
 
 	private async getChangesetRevisions(changesetId: number): Promise<ChangesetDiffItem[]> {
-		const result = await execCm([
+		const result = await this._execCm([
 			'find', 'revision',
 			`where changeset=${changesetId}`,
 			'--format={path}#{type}',
@@ -601,7 +643,7 @@ export class CliBackend implements PlasticBackend {
 			'--dateformat=yyyy-MM-ddTHH:mm:ssK',
 			'--nototal',
 		];
-		const result = await execCm(args);
+		const result = await this._execCm(args);
 		if (result.exitCode !== 0) {
 			throw new Error(`cm find review failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
 		}
@@ -609,7 +651,7 @@ export class CliBackend implements PlasticBackend {
 		return lines.map(parseReviewLine).filter((r): r is CodeReviewInfo => r !== undefined);
 	}
 	async getCodeReview(id: number): Promise<CodeReviewInfo> {
-		const result = await execCm([
+		const result = await this._execCm([
 			'find', 'review',
 			`where id=${id}`,
 			'--format={id}#{title}#{status}#{owner}#{date}#{targettype}#{target}#{assignee}',
@@ -643,7 +685,7 @@ export class CliBackend implements PlasticBackend {
 			args.push(`--assignee=${params.reviewers[0]}`);
 		}
 
-		const result = await execCm(args);
+		const result = await this._execCm(args);
 		if (result.exitCode !== 0) {
 			throw new Error(`cm codereview create failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
 		}
@@ -656,14 +698,14 @@ export class CliBackend implements PlasticBackend {
 		return this.getCodeReview(newId);
 	}
 	async deleteCodeReview(id: number): Promise<void> {
-		const result = await execCm(['codereview', '-d', String(id)]);
+		const result = await this._execCm(['codereview', '-d', String(id)]);
 		if (result.exitCode !== 0) {
 			throw new Error(`cm codereview delete failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
 		}
 	}
 
 	async updateCodeReviewStatus(id: number, status: ReviewStatus): Promise<void> {
-		const result = await execCm(['codereview', '-e', String(id), `--status=${status}`]);
+		const result = await this._execCm(['codereview', '-e', String(id), `--status=${status}`]);
 		if (result.exitCode !== 0) {
 			throw new Error(`cm codereview edit failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
 		}
@@ -685,7 +727,7 @@ export class CliBackend implements PlasticBackend {
 		for (let i = 0; i < revisionIds.length; i += CHUNK_SIZE) {
 			const chunk = revisionIds.slice(i, i + CHUNK_SIZE);
 			const whereClause = chunk.map(id => `id=${id}`).join(' or ');
-			const result = await execCm([
+			const result = await this._execCm([
 				'find', 'revision',
 				`where ${whereClause}`,
 				'--format={item}#{id}',
@@ -708,7 +750,7 @@ export class CliBackend implements PlasticBackend {
 
 	// Phase 5 — Labels
 	async listLabels(): Promise<LabelInfo[]> {
-		const result = await execCm([
+		const result = await this._execCm([
 			'find', 'label',
 			'--format={name}#{id}#{owner}#{date}#{changeset}#{comment}',
 			'--dateformat=yyyy-MM-ddTHH:mm:ssK',
@@ -724,7 +766,7 @@ export class CliBackend implements PlasticBackend {
 	async createLabel(params: CreateLabelParams): Promise<LabelInfo> {
 		const args = ['label', params.name, `cs:${params.changesetId}`];
 		if (params.comment) args.push(`-c=${params.comment}`);
-		const result = await execCm(args);
+		const result = await this._execCm(args);
 		if (result.exitCode !== 0) {
 			throw new Error(`cm label failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
 		}
@@ -740,14 +782,14 @@ export class CliBackend implements PlasticBackend {
 
 	async deleteLabel(id: number): Promise<void> {
 		// cm doesn't delete by ID, need to find name first
-		const result = await execCm([
+		const result = await this._execCm([
 			'find', 'label', `where id=${id}`, '--format={name}', '--nototal',
 		]);
 		if (result.exitCode !== 0 || !result.stdout.trim()) {
 			throw new Error(`Label with ID ${id} not found`);
 		}
 		const name = result.stdout.trim().split(/\r?\n/)[0].trim();
-		const delResult = await execCm(['label', 'delete', name]);
+		const delResult = await this._execCm(['label', 'delete', name]);
 		if (delResult.exitCode !== 0) {
 			throw new Error(`cm label delete failed (exit ${delResult.exitCode}): ${delResult.stderr || delResult.stdout}`);
 		}
@@ -755,7 +797,7 @@ export class CliBackend implements PlasticBackend {
 
 	// Phase 5 — File history + annotate
 	async getFileHistory(path: string): Promise<FileHistoryEntry[]> {
-		const result = await execCm([
+		const result = await this._execCm([
 			'history', path, '--format={changesetid}#{branch}#{owner}#{date}#{comment}#{type}',
 			'--dateformat=yyyy-MM-ddTHH:mm:ssK',
 		]);
@@ -770,7 +812,7 @@ export class CliBackend implements PlasticBackend {
 		// Use an explicit format so we get a reliable, delimited output to parse.
 		// Default cm annotate output has variable whitespace padding and embeds the
 		// changeset inside `br:/path#NNN`, which is fragile to parse.
-		const result = await execCm([
+		const result = await this._execCm([
 			'annotate', path,
 			'--format={line}\u001f{changeset}\u001f{owner}\u001f{date}\u001f{content}',
 			'--dateformat=yyyy-MM-ddTHH:mm:ssK',
@@ -788,7 +830,7 @@ export class CliBackend implements PlasticBackend {
 		// cm undocheckout is a silent no-op on CH files and only reverts CO (checkedOut)
 		// state. --silent suppresses GUI confirmation dialogs.
 		const args = ['undocheckout', '-a', '--silent', ...paths];
-		const result = await execCm(args);
+		const result = await this._execCm(args);
 		if (result.exitCode !== 0) {
 			throw new Error(`cm undocheckout failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
 		}
@@ -806,7 +848,7 @@ export class CliBackend implements PlasticBackend {
 		// cm add adds private (untracked) files to source control, making them AD (added).
 		// This is required before they can be checked in.
 		const args = ['add', ...paths];
-		const result = await execCm(args);
+		const result = await this._execCm(args);
 		if (result.exitCode !== 0) {
 			throw new Error(`cm add failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
 		}
@@ -819,7 +861,7 @@ export class CliBackend implements PlasticBackend {
 		// cm remove marks controlled files for deletion (LD → DE).
 		// Required before checkin can commit locally-deleted files.
 		const args = ['remove', ...paths];
-		const result = await execCm(args);
+		const result = await this._execCm(args);
 		if (result.exitCode !== 0) {
 			throw new Error(`cm remove failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
 		}
@@ -829,7 +871,7 @@ export class CliBackend implements PlasticBackend {
 
 	// Phase 7 — get base revision content for backup
 	async getBaseRevisionContent(path: string): Promise<Buffer | null> {
-		const result = await execCm(['cat', path, '--raw'], 10 * 1024 * 1024);
+		const result = await this._execCm(['cat', path, '--raw'], 10 * 1024 * 1024);
 		if (result.exitCode === 0) {
 			return Buffer.from(result.stdout, 'binary');
 		}
@@ -838,7 +880,7 @@ export class CliBackend implements PlasticBackend {
 
 	// Phase 5 — Merges
 	async checkMergeAllowed(sourceBranch: string, targetBranch: string): Promise<MergeReport> {
-		const result = await execCm([
+		const result = await this._execCm([
 			'merge', sourceBranch, '--to=' + targetBranch, '--preview',
 		]);
 		const output = result.stdout + '\n' + result.stderr;
@@ -863,7 +905,7 @@ export class CliBackend implements PlasticBackend {
 	async executeMerge(sourceBranch: string, targetBranch: string, comment?: string): Promise<MergeResult> {
 		const args = ['merge', sourceBranch, '--to=' + targetBranch];
 		if (comment) args.push(`-c=${comment}`);
-		const result = await execCm(args);
+		const result = await this._execCm(args);
 		if (result.exitCode !== 0) {
 			const output = result.stderr || result.stdout;
 			const conflicts = output.split(/\r?\n/)
@@ -1086,7 +1128,7 @@ function parseBranchLine(line: string): BranchInfo | undefined {
 	};
 }
 
-function parseStatusLine(line: string): NormalizedChange | undefined {
+function parseStatusLine(line: string, scopedRoot?: string): NormalizedChange | undefined {
 	const typeCode = line.substring(0, 2).trim();
 	const changeType = CM_CHANGE_TYPE_MAP[typeCode];
 	if (!changeType) return undefined;
@@ -1117,7 +1159,9 @@ function parseStatusLine(line: string): NormalizedChange | undefined {
 	// Split them using the workspace root as anchor (both paths start with it).
 	let sourcePath: string | undefined;
 	if (effectiveType === 'moved') {
-		const root = getCmWorkspaceRoot();
+		// Prefer the scoped root passed by the caller (context-aware backend);
+		// fall back to the module global for legacy call sites.
+		const root = scopedRoot ?? getCmWorkspaceRoot();
 		if (root) {
 			// cm.exe emits Windows-form paths — translate WSL-form root if needed.
 			const normalizedRoot = normalizePath(wslToWindowsPath(root)).toLowerCase();
@@ -1130,7 +1174,7 @@ function parseStatusLine(line: string): NormalizedChange | undefined {
 				if (secondIdx > 0) {
 					const oldRaw = filePath.substring(firstIdx, secondIdx).trim();
 					const newRaw = filePath.substring(secondIdx).trim();
-					sourcePath = stripWorkspaceRoot(oldRaw);
+					sourcePath = stripWorkspaceRoot(oldRaw, scopedRoot);
 					filePath = newRaw;
 				}
 			}
@@ -1138,7 +1182,7 @@ function parseStatusLine(line: string): NormalizedChange | undefined {
 	}
 
 	// cm status returns absolute paths — strip the workspace root to get relative paths
-	filePath = stripWorkspaceRoot(filePath);
+	filePath = stripWorkspaceRoot(filePath, scopedRoot);
 
 	// Only log compound type codes and unparseable edge cases — skip routine lines
 	if (effectiveType !== changeType) {
@@ -1163,9 +1207,14 @@ function parseStatusLine(line: string): NormalizedChange | undefined {
  * emitted by `cm.exe` can still match when the workspace root was stored in
  * Linux form (e.g. integration tests running from WSL Node).
  * Rejects paths that escape the workspace root (e.g., via ".." traversal).
+ *
+ * Callers that have a scoped workspace root (a CliBackend built with a
+ * PlasticContext) should pass it explicitly; callers that rely on the
+ * module global can omit it and the function falls back to
+ * `getCmWorkspaceRoot()`.
  */
-function stripWorkspaceRoot(filePath: string): string {
-	const root = getCmWorkspaceRoot();
+function stripWorkspaceRoot(filePath: string, scopedRoot?: string): string {
+	const root = scopedRoot ?? getCmWorkspaceRoot();
 	if (!root) return filePath;
 
 	// Normalize separators and translate WSL form to Windows form for comparison.

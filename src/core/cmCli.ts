@@ -4,6 +4,7 @@ import { unlink } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { log, logError } from '../util/logger';
+import type { PlasticContext } from './context';
 
 const CM_PATH_WIN = 'C:\\Program Files\\PlasticSCM5\\client\\cm.exe';
 const CM_PATH_UNIX = 'cm';
@@ -13,6 +14,9 @@ const CM_PATH_UNIX = 'cm';
  *  CM_PATH_WIN resolves from the Linux filesystem. */
 const CM_PATH_ENV = 'PLASTIC_CM_PATH';
 
+// Module-level globals — legacy state for call sites that have not yet been
+// migrated to PlasticContext. New code should prefer passing a context
+// explicitly via execCmWithContext / execCmToFileWithContext. See context.ts.
 let cmPath: string | undefined;
 let workspaceRoot: string | undefined;
 
@@ -34,15 +38,15 @@ export function setCmWorkspaceRoot(root: string): void {
 }
 
 /**
- * Detect the cm CLI binary. Returns the path or undefined if not found.
+ * Probe for a working cm binary. Pure: returns the discovered path without
+ * touching module-level state. Used by context construction and by the
+ * module-level `detectCm()` which caches the result.
  * Resolution order:
  *   1. PLASTIC_CM_PATH env var (explicit override)
  *   2. Platform default (CM_PATH_WIN on Windows, `cm` on other platforms)
  *   3. The other fallback
  */
-export async function detectCm(): Promise<string | undefined> {
-	if (cmPath) return cmPath;
-
+export async function probeCmBinary(): Promise<string | undefined> {
 	const envOverride = process.env[CM_PATH_ENV];
 	const candidates: string[] = [];
 	if (envOverride) candidates.push(envOverride);
@@ -56,9 +60,8 @@ export async function detectCm(): Promise<string | undefined> {
 		try {
 			const result = await execCmRaw(candidate, ['version']);
 			if (result.exitCode === 0) {
-				cmPath = candidate;
 				log(`Found cm CLI at "${candidate}": ${result.stdout.trim()}`);
-				return cmPath;
+				return candidate;
 			}
 		} catch {
 			// Try next candidate
@@ -67,6 +70,17 @@ export async function detectCm(): Promise<string | undefined> {
 
 	log('cm CLI not found');
 	return undefined;
+}
+
+/**
+ * Detect the cm CLI binary and cache the result in module state.
+ * Legacy entry point for call sites that rely on module-level cmPath.
+ * New code should prefer `probeCmBinary()` + explicit PlasticContext.
+ */
+export async function detectCm(): Promise<string | undefined> {
+	if (cmPath) return cmPath;
+	cmPath = await probeCmBinary();
+	return cmPath;
 }
 
 /**
@@ -95,12 +109,30 @@ export function getCmWorkspaceRoot(): string | undefined {
 /**
  * Execute a cm CLI command and return parsed output.
  * Use maxBuffer for commands that may return large output (e.g. cm cat on big files).
+ *
+ * Reads cm binary path and cwd from module-level globals (`cmPath`,
+ * `workspaceRoot`). For call sites that have migrated to PlasticContext,
+ * prefer `execCmWithContext` which bypasses module state entirely.
  */
 export async function execCm(args: string[], maxBuffer?: number): Promise<CmResult> {
 	if (!cmPath) {
 		throw new Error('cm CLI not available');
 	}
 	return execCmRaw(cmPath, args.map(toCmArg), maxBuffer);
+}
+
+/**
+ * Context-aware variant of `execCm`. Uses the binary and workspace root from
+ * the supplied PlasticContext, never touching module-level state. Safe to
+ * call with different contexts concurrently — each call operates on its own
+ * workspace.
+ */
+export async function execCmWithContext(
+	ctx: PlasticContext,
+	args: string[],
+	maxBuffer?: number,
+): Promise<CmResult> {
+	return execCmRaw(ctx.cmPath, args.map(toCmArg), maxBuffer, ctx.workspaceRoot);
 }
 
 /**
@@ -122,7 +154,7 @@ export function toCmArg(arg: string): string {
 	return `${drive}:${rest}`;
 }
 
-interface CmResult {
+export interface CmResult {
 	stdout: string;
 	stderr: string;
 	exitCode: number;
@@ -132,15 +164,42 @@ interface CmResult {
  * Stream cm cat output to a temp file — no memory buffer limit.
  * Use for large files (.unity, .prefab, .asset, .scene, etc.)
  * Returns the temp file path on success, undefined on failure.
+ *
+ * Reads cm binary path and cwd from module-level globals. For call sites
+ * that have migrated to PlasticContext, prefer `execCmToFileWithContext`.
  */
 export async function execCmToFile(args: string[]): Promise<string | undefined> {
 	if (!cmPath) {
 		throw new Error('cm CLI not available');
 	}
+	return execCmToFileRaw(cmPath, args, workspaceRoot);
+}
+
+/**
+ * Context-aware variant of `execCmToFile`. Uses the binary and workspace root
+ * from the supplied PlasticContext, never touching module-level state.
+ */
+export async function execCmToFileWithContext(
+	ctx: PlasticContext,
+	args: string[],
+): Promise<string | undefined> {
+	return execCmToFileRaw(ctx.cmPath, args, ctx.workspaceRoot);
+}
+
+/**
+ * Shared implementation of execCmToFile that accepts explicit binary and cwd
+ * arguments. Both the module-level `execCmToFile` and the context-aware
+ * variant delegate here.
+ */
+function execCmToFileRaw(
+	binary: string,
+	args: string[],
+	cwd: string | undefined,
+): Promise<string | undefined> {
 	const tempPath = join(tmpdir(), `plastic-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`);
 	return new Promise((resolve) => {
-		const proc = spawn(cmPath!, args.map(toCmArg), {
-			cwd: workspaceRoot,
+		const proc = spawn(binary, args.map(toCmArg), {
+			cwd,
 			windowsHide: true,
 			stdio: ['ignore', 'pipe', 'pipe'],
 			env: { ...process.env, ...CM_HEADLESS_ENV },
@@ -182,7 +241,12 @@ const CM_HEADLESS_ENV: Record<string, string> = {
 	PLASTIC_NO_GUI: '1',
 };
 
-function execCmRaw(binary: string, args: string[], maxBuffer?: number): Promise<CmResult> {
+function execCmRaw(
+	binary: string,
+	args: string[],
+	maxBuffer?: number,
+	cwdOverride?: string,
+): Promise<CmResult> {
 	return new Promise((resolve, reject) => {
 		const opts: {
 			cwd?: string;
@@ -194,8 +258,11 @@ function execCmRaw(binary: string, args: string[], maxBuffer?: number): Promise<
 			// Merge headless env vars with the current process environment
 			env: { ...process.env, ...CM_HEADLESS_ENV },
 		};
-		if (workspaceRoot) {
-			opts.cwd = workspaceRoot;
+		// Explicit override (from PlasticContext) takes precedence over the
+		// module-level workspaceRoot so scoped calls don't leak each other's cwd.
+		const effectiveCwd = cwdOverride ?? workspaceRoot;
+		if (effectiveCwd) {
+			opts.cwd = effectiveCwd;
 		}
 		if (maxBuffer) {
 			opts.maxBuffer = maxBuffer;

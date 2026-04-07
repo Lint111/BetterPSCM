@@ -24,7 +24,8 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { CliBackend } from '../../src/core/backendCli';
-import { setCmWorkspaceRoot, detectCm, execCm, resetCmPath } from '../../src/core/cmCli';
+import { probeCmBinary, execCmWithContext } from '../../src/core/cmCli';
+import { createPlasticContext, PlasticContext } from '../../src/core/context';
 
 /** Env var holding the absolute path to a writable Plastic workspace. */
 const WORKSPACE_ENV = 'BPSCM_INTEGRATION_WORKSPACE';
@@ -44,6 +45,8 @@ const SCRATCH_PREFIX = 'scratch-';
 export interface IntegrationFixture {
 	/** Absolute path to the workspace root. */
 	readonly workspaceRoot: string;
+	/** PlasticContext owned by this fixture — pass it into any code under test that accepts one. */
+	readonly context: PlasticContext;
 	/** Workspace-relative path of the committed anchor file (e.g. `__bpscm_integration__/anchor.txt`). */
 	readonly anchorPath: string;
 	/** Absolute path of the committed anchor file. */
@@ -54,7 +57,7 @@ export interface IntegrationFixture {
 	readonly scratchDirAbs: string;
 	/** Workspace-relative path of the per-test scratch directory. */
 	readonly scratchDir: string;
-	/** Backend wired to the workspace. */
+	/** Backend wired to the fixture context. */
 	readonly backend: CliBackend;
 	/** Overwrite the anchor file with new content (test simulates a CH modification). */
 	modifyAnchor(content: string | Buffer): void;
@@ -63,7 +66,7 @@ export interface IntegrationFixture {
 	/** Write a private (never-committed) file into the scratch directory. Returns workspace-relative path. */
 	writeScratch(relName: string, content: string | Buffer): string;
 	/** Run an arbitrary cm command against the workspace. */
-	rawCm(args: string[]): ReturnType<typeof execCm>;
+	rawCm(args: string[]): Promise<import('../../src/core/cmCli').CmResult>;
 	/** Restore the anchor file to base and remove the scratch directory. */
 	cleanup(): Promise<void>;
 }
@@ -94,6 +97,22 @@ function resolveWorkspaceRoot(): string {
 }
 
 /**
+ * Build a PlasticContext for the integration test workspace. Probes the cm
+ * binary once and freezes the result — this is how tests achieve workspace
+ * isolation without touching module-level cmPath/workspaceRoot globals.
+ */
+async function buildIntegrationContext(): Promise<PlasticContext> {
+	const workspaceRoot = resolveWorkspaceRoot();
+	const cmPath = await probeCmBinary();
+	if (!cmPath) {
+		throw new Error(
+			`cm binary not found. Install Plastic SCM or set PLASTIC_CM_PATH to the cm executable.`,
+		);
+	}
+	return createPlasticContext({ workspaceRoot, cmPath });
+}
+
+/**
  * Ensure the fixtures root exists and the anchor file is committed at its known
  * base revision. Idempotent — safe to call from every `beforeAll`.
  *
@@ -102,17 +121,9 @@ function resolveWorkspaceRoot(): string {
  * anchor already in cm status as CI (unmodified) and return immediately.
  */
 export async function ensureFixturesRoot(): Promise<void> {
-	const workspaceRoot = resolveWorkspaceRoot();
-	resetCmPath();
-	setCmWorkspaceRoot(workspaceRoot);
-	const cmBinary = await detectCm();
-	if (!cmBinary) {
-		throw new Error(
-			`cm binary not found. Install Plastic SCM or set PLASTIC_CM_PATH to the cm executable.`,
-		);
-	}
+	const ctx = await buildIntegrationContext();
 
-	const fixturesAbs = join(workspaceRoot, FIXTURES_ROOT);
+	const fixturesAbs = join(ctx.workspaceRoot, FIXTURES_ROOT);
 	const anchorAbs = join(fixturesAbs, ANCHOR_FILE);
 	const anchorRel = `${FIXTURES_ROOT}/${ANCHOR_FILE}`;
 
@@ -120,7 +131,7 @@ export async function ensureFixturesRoot(): Promise<void> {
 		mkdirSync(fixturesAbs, { recursive: true });
 	}
 
-	const backend = new CliBackend();
+	const backend = new CliBackend(ctx);
 
 	// If the anchor already exists on disk, make sure it's at base content and is
 	// known to cm. If it's CH, restore it. If it's private, commit it.
@@ -150,30 +161,26 @@ export async function ensureFixturesRoot(): Promise<void> {
  * Create a fresh per-test fixture. Call in `beforeEach` and hold the result;
  * call `cleanup()` in `afterEach`.
  *
- * Cheap operation — does not touch cm state. Creates a scratch subdirectory
- * on disk only, and wires a CliBackend pointing at the shared workspace root.
+ * Each fixture builds its own PlasticContext and CliBackend instance — they
+ * do not share state with other tests or with the module-level cmPath /
+ * workspaceRoot globals.
  */
 export async function createIntegrationFixture(): Promise<IntegrationFixture> {
-	const workspaceRoot = resolveWorkspaceRoot();
-	resetCmPath();
-	setCmWorkspaceRoot(workspaceRoot);
-	const cmBinary = await detectCm();
-	if (!cmBinary) {
-		throw new Error(`cm binary not found. Set PLASTIC_CM_PATH.`);
-	}
+	const ctx = await buildIntegrationContext();
 
 	const anchorPath = `${FIXTURES_ROOT}/${ANCHOR_FILE}`;
-	const anchorPathAbs = join(workspaceRoot, FIXTURES_ROOT, ANCHOR_FILE);
+	const anchorPathAbs = join(ctx.workspaceRoot, FIXTURES_ROOT, ANCHOR_FILE);
 
 	const scratchName = `${SCRATCH_PREFIX}${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-	const scratchDirAbs = join(workspaceRoot, FIXTURES_ROOT, scratchName);
+	const scratchDirAbs = join(ctx.workspaceRoot, FIXTURES_ROOT, scratchName);
 	const scratchDir = `${FIXTURES_ROOT}/${scratchName}`;
 	mkdirSync(scratchDirAbs, { recursive: true });
 
-	const backend = new CliBackend();
+	const backend = new CliBackend(ctx);
 
 	const fixture: IntegrationFixture = {
-		workspaceRoot,
+		workspaceRoot: ctx.workspaceRoot,
+		context: ctx,
 		anchorPath,
 		anchorPathAbs,
 		anchorBaseContent: ANCHOR_BASE_CONTENT,
@@ -199,8 +206,8 @@ export async function createIntegrationFixture(): Promise<IntegrationFixture> {
 			return `${scratchDir}/${relName}`;
 		},
 
-		rawCm(args): ReturnType<typeof execCm> {
-			return execCm(args);
+		rawCm(args): Promise<import('../../src/core/cmCli').CmResult> {
+			return execCmWithContext(ctx, args);
 		},
 
 		async cleanup(): Promise<void> {
