@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.1] - 2026-04-10
+
+### Fixed
+
+- **Stale detection false positives dropping modified CO files** — `COMMITTABLE_CHANGE_TYPES` excluded `checkedOut`, causing the poll loop to silently filter ALL CO files from the SCM panel and prune them from staging. In exclusive-checkout workspaces (common with Unity), modified files keep the CO status, so genuinely modified files were being lost before checkin. CO is now committable; truly stale COs are handled downstream by `_checkinWithRetry` and the explicit `cleanStale` command.
+- **History graph `{type}` placeholder** — `cm history --format` does not support `{type}`; removed to prevent parse failures.
+- **History graph `--dateformat` flag** — unsupported in `cm history` and `cm annotate`; removed from both commands.
+- **History graph dropping commits with multi-line or `#`-containing comments** — changeset parser now correctly handles comments that span multiple lines or include `#` characters.
+
+### Tests
+
+- Unit test count: 465 → 472 (+7). Added changeset parsing tests for multi-line and `#` comments.
+
 ## [0.4.0] - 2026-04-07
 
 ### Added

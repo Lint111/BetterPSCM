@@ -2,7 +2,7 @@
   "name": "betterpscm",
   "displayName": "BetterPSCM",
   "description": "Feature-complete Plastic SCM integration for VS Code — staging, diffs, branches, code reviews, and AI agent support via MCP",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "publisher": "llnt",
   "license": "MIT",
   "icon": "media/icon.png",
