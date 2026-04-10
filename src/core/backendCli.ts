@@ -367,7 +367,9 @@ export class CliBackend implements PlasticBackend {
 		const args = [
 			'find', 'changeset',
 			query,
-			'--format={changesetid}#{branch}#{owner}#{date}#{comment}#{parent}',
+			// Record-start marker so multi-line/#-bearing comments can't corrupt parsing.
+			// {comment} MUST be the last field — it may contain '#' and newlines.
+			'--format=@@CS@@{changesetid}#{branch}#{owner}#{date}#{parent}#{comment}',
 			// Force ISO-8601 dates. Without this, cm uses the OS locale format
 			// (e.g. dd/MM/yyyy on non-US systems), which JS `new Date()` then
 			// mis-parses as MM/dd — producing future dates and negative "Nd ago".
@@ -383,8 +385,8 @@ export class CliBackend implements PlasticBackend {
 			throw new Error(`cm find changeset failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
 		}
 
-		const lines = result.stdout.split(/\r?\n/).filter(l => l.length > 0);
-		return lines.map(parseChangesetLine).filter((c): c is ChangesetInfo => c !== undefined);
+		const records = result.stdout.split('@@CS@@').slice(1);
+		return records.map(parseChangesetRecord).filter((c): c is ChangesetInfo => c !== undefined);
 	}
 
 	async listMerges(): Promise<MergeLink[]> {
@@ -415,7 +417,9 @@ export class CliBackend implements PlasticBackend {
 		const args = [
 			'find', 'changeset',
 			query,
-			'--format={changesetid}#{branch}#{owner}#{date}#{comment}',
+			// Record-start marker so multi-line/#-bearing comments can't corrupt parsing.
+			// {comment} MUST be the last field — it may contain '#' and newlines.
+			'--format=@@CS@@{changesetid}#{branch}#{owner}#{date}#{comment}',
 			'--dateformat=yyyy-MM-ddTHH:mm:ssK',
 			'--nototal',
 		];
@@ -424,8 +428,8 @@ export class CliBackend implements PlasticBackend {
 			throw new Error(`cm find changeset failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
 		}
 
-		const lines = result.stdout.split(/\r?\n/).filter(l => l.length > 0);
-		return lines.map(parseChangesetLineNoParent).filter((c): c is ChangesetInfo => c !== undefined);
+		const records = result.stdout.split('@@CS@@').slice(1);
+		return records.map(parseChangesetRecordNoParent).filter((c): c is ChangesetInfo => c !== undefined);
 	}
 
 	async updateWorkspace(): Promise<UpdateResult> {
@@ -1079,36 +1083,18 @@ function parseChangesetRecord(rec: string): ChangesetInfo | undefined {
 	};
 }
 
-function parseChangesetLine(line: string): ChangesetInfo | undefined {
-	const parts = line.split('#');
-	if (parts.length < 6) return undefined;
-
-	const id = parseInt(parts[0], 10);
-	if (isNaN(id)) return undefined;
-
-	return {
-		id,
-		branch: parts[1],
-		owner: parts[2],
-		date: parts[3],
-		comment: parts[4] || undefined,
-		parent: parseInt(parts[5], 10) || 0,
-	};
-}
-
-function parseChangesetLineNoParent(line: string): ChangesetInfo | undefined {
-	const parts = line.split('#');
+function parseChangesetRecordNoParent(rec: string): ChangesetInfo | undefined {
+	const parts = rec.split('#');
 	if (parts.length < 5) return undefined;
-
 	const id = parseInt(parts[0], 10);
-	if (isNaN(id)) return undefined;
-
+	if (!Number.isFinite(id)) return undefined;
+	const commentRaw = parts.slice(4).join('#').replace(/\r?\n$/, '');
 	return {
 		id,
 		branch: parts[1],
 		owner: parts[2],
 		date: parts[3],
-		comment: parts[4] || undefined,
+		comment: commentRaw || undefined,
 		parent: id > 0 ? id - 1 : 0, // best-guess sequential parent
 	};
 }
