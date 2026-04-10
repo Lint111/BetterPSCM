@@ -801,9 +801,10 @@ export class CliBackend implements PlasticBackend {
 
 	// Phase 5 — File history + annotate
 	async getFileHistory(path: string): Promise<FileHistoryEntry[]> {
+		// Note: `cm history` does NOT support --dateformat (only `cm find` does).
+		// Dates will be in the OS locale format.
 		const result = await this._execCm([
 			'history', path, '--format={changesetid}#{branch}#{owner}#{date}#{comment}#{type}',
-			'--dateformat=yyyy-MM-ddTHH:mm:ssK',
 		]);
 		if (result.exitCode !== 0) {
 			throw new Error(`cm history failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
@@ -816,10 +817,11 @@ export class CliBackend implements PlasticBackend {
 		// Use an explicit format so we get a reliable, delimited output to parse.
 		// Default cm annotate output has variable whitespace padding and embeds the
 		// changeset inside `br:/path#NNN`, which is fragile to parse.
+		// Note: `cm annotate` does NOT support --dateformat (only `cm find` does).
+		// Dates will be in the OS locale format.
 		const result = await this._execCm([
 			'annotate', path,
 			'--format={line}\u001f{changeset}\u001f{owner}\u001f{date}\u001f{content}',
-			'--dateformat=yyyy-MM-ddTHH:mm:ssK',
 		]);
 		if (result.exitCode !== 0) {
 			throw new Error(`cm annotate failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);

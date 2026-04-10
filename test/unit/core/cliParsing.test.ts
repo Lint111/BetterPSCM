@@ -296,6 +296,19 @@ describe('CLI output parsing edge cases', () => {
 			expect(blame[0].content).toBe('first line\nsome continuation');
 			expect(blame[1].changesetId).toBe(43);
 		});
+
+		it('does not pass --dateformat to cm annotate', async () => {
+			// cm annotate does NOT support --dateformat (only cm find does).
+			// Passing it causes "Unexpected option --dateformat" errors.
+			mockExecCm.mockResolvedValue({
+				stdout: `1${SEP}42${SEP}alice${SEP}2026-01-01${SEP}code\n`,
+				stderr: '', exitCode: 0,
+			});
+
+			await backend.getBlame('/src/foo.ts');
+			const args = mockExecCm.mock.calls[mockExecCm.mock.calls.length - 1][0] as string[];
+			expect(args.join(' ')).not.toContain('--dateformat');
+		});
 	});
 
 	describe('label parsing', () => {
@@ -337,6 +350,19 @@ describe('CLI output parsing edge cases', () => {
 
 			const history = await backend.getFileHistory('/src/old.ts');
 			expect(history[0].type).toBe('deleted');
+		});
+
+		it('does not pass --dateformat to cm history', async () => {
+			// cm history does NOT support --dateformat (only cm find does).
+			// Passing it causes "Unexpected option --dateformat" errors.
+			mockExecCm.mockResolvedValue({
+				stdout: '42#/main#alice#2026-01-01#initial#add\n',
+				stderr: '', exitCode: 0,
+			});
+
+			await backend.getFileHistory('/src/foo.ts');
+			const args = mockExecCm.mock.calls[mockExecCm.mock.calls.length - 1][0] as string[];
+			expect(args.join(' ')).not.toContain('--dateformat');
 		});
 	});
 
