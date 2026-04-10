@@ -212,7 +212,6 @@ export class PlasticScmProvider implements vscode.Disposable {
 			}
 
 			const oldCount = this.currentChanges.length;
-			// Filter out stale checkouts (checked out but not modified) from the UI
 			this.currentChanges = result.changes.filter(c => isCommittableChange(c.changeType));
 
 			// Update quick diff provider with latest changes

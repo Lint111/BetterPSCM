@@ -15,8 +15,11 @@ describe('safety constants', () => {
 		expect(COMMITTABLE_CHANGE_TYPES.has('moved')).toBe(true);
 	});
 
+	it('COMMITTABLE_CHANGE_TYPES includes checkedOut', () => {
+		expect(COMMITTABLE_CHANGE_TYPES.has('checkedOut')).toBe(true);
+	});
+
 	it('COMMITTABLE_CHANGE_TYPES excludes non-changes', () => {
-		expect(COMMITTABLE_CHANGE_TYPES.has('checkedOut')).toBe(false);
 		expect(COMMITTABLE_CHANGE_TYPES.has('private')).toBe(false);
 		expect(COMMITTABLE_CHANGE_TYPES.has('ignored')).toBe(false);
 	});
@@ -37,8 +40,8 @@ describe('isCommittableChange', () => {
 		expect(isCommittableChange('added')).toBe(true);
 	});
 
-	it('returns false for checkedOut', () => {
-		expect(isCommittableChange('checkedOut')).toBe(false);
+	it('returns true for checkedOut', () => {
+		expect(isCommittableChange('checkedOut')).toBe(true);
 	});
 
 	it('returns false for undefined', () => {

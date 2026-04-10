@@ -183,10 +183,7 @@ export class PlasticService {
 		const filtered = paths.filter(p => {
 			if (autoAdded.includes(p)) return true;
 			const ct = changeMap.get(p) || changeMap.get(normalizePath(p));
-			// Allow checkedOut through — files edited by external tools (Unity, agents)
-			// may still show as CO. cm checkin will reject truly unchanged ones,
-			// and _checkinWithRetry handles the exclusion gracefully.
-			if (!ct || (!isCommittableChange(ct) && ct !== 'checkedOut')) {
+			if (!ct || !isCommittableChange(ct)) {
 				autoExcluded.push(p);
 				return false;
 			}

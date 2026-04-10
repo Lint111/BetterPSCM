@@ -7,9 +7,11 @@ export const BULK_OPERATION_THRESHOLD = 20;
 export const UNITY_CRITICAL_EXTENSIONS = ['.meta', '.unity', '.prefab', '.asset', '.asmdef', '.asmref'];
 
 /** Change types that represent real file modifications safe to commit.
- *  Files with any other status (checkedOut, private, ignored, etc.) are auto-excluded. */
+ *  Includes checkedOut — in exclusive-checkout workspaces, modified files keep
+ *  the CO status. Truly stale COs are handled by _checkinWithRetry and cleanStale.
+ *  Files with any other status (private, ignored, etc.) are auto-excluded. */
 export const COMMITTABLE_CHANGE_TYPES = new Set<string>([
-	'added', 'changed', 'deleted', 'moved', 'replaced', 'copied', 'locallyDeleted',
+	'added', 'changed', 'deleted', 'moved', 'replaced', 'copied', 'locallyDeleted', 'checkedOut',
 ]);
 
 /** Change types that have a base revision and support inline diffing. */
