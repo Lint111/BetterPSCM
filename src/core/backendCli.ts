@@ -803,8 +803,11 @@ export class CliBackend implements PlasticBackend {
 	async getFileHistory(path: string): Promise<FileHistoryEntry[]> {
 		// Note: `cm history` does NOT support --dateformat (only `cm find` does).
 		// Dates will be in the OS locale format.
+		// Note: `cm history` does NOT support {type} — only {date}, {changesetid},
+		// {branch}, {comment}, {owner}, {id}, {repository}, {server}, etc.
+		// {comment} is placed last so comments containing '#' don't corrupt parsing.
 		const result = await this._execCm([
-			'history', path, '--format={changesetid}#{branch}#{owner}#{date}#{comment}#{type}',
+			'history', path, '--format={changesetid}#{branch}#{owner}#{date}#{comment}',
 		]);
 		if (result.exitCode !== 0) {
 			throw new Error(`cm history failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
@@ -1244,24 +1247,21 @@ function parseLabelLine(line: string): LabelInfo | undefined {
 }
 
 function parseHistoryLine(line: string): FileHistoryEntry | undefined {
+	// Format: {changesetid}#{branch}#{owner}#{date}#{comment}
+	// {comment} is the last field and may contain '#', so join remaining parts.
+	// cm history does not provide a {type} field — default to 'changed'.
 	const parts = line.split('#');
-	if (parts.length < 5) return undefined;
+	if (parts.length < 4) return undefined;
 	const csId = parseInt(parts[0], 10);
 	if (isNaN(csId)) return undefined;
-	const rawType = (parts[5] || '').trim().toLowerCase();
-	const type: FileHistoryEntry['type'] =
-		rawType.includes('add') ? 'added'
-		: rawType.includes('del') || rawType.includes('remove') ? 'deleted'
-		: rawType.includes('mov') || rawType.includes('rename') ? 'moved'
-		: 'changed';
 	return {
 		revisionId: 0,
 		changesetId: csId,
 		branch: parts[1],
 		owner: parts[2],
 		date: parts[3],
-		comment: parts[4] || undefined,
-		type,
+		comment: parts.slice(4).join('#') || undefined,
+		type: 'changed',
 	};
 }
 

@@ -43,10 +43,10 @@ describe('file history and blame (integration)', () => {
 			expect(entry.date).toBeTruthy();
 		});
 
-		it('populates the type field for history entries', async () => {
+		it('defaults type to changed (cm history has no {type} placeholder)', async () => {
 			const history = await fx.backend.getFileHistory(fx.anchorPath);
 			for (const entry of history) {
-				expect(['added', 'changed', 'deleted', 'moved']).toContain(entry.type);
+				expect(entry.type).toBe('changed');
 			}
 		});
 	});

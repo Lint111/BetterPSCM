@@ -329,34 +329,38 @@ describe('CLI output parsing edge cases', () => {
 
 	describe('file history parsing', () => {
 		it('parses history lines', async () => {
-			// Format: {changesetid}#{branch}#{owner}#{date}#{comment}#{type}
+			// Format: {changesetid}#{branch}#{owner}#{date}#{comment}
+			// cm history does not support {type} — all entries default to 'changed'.
 			mockExecCm.mockResolvedValue({
-				stdout: '42#/main#alice#2026-01-01#initial#add\n43#/main#bob#2026-01-02#update#changed\n',
+				stdout: '42#/main#alice#2026-01-01#initial commit\n43#/main#bob#2026-01-02#update\n',
 				stderr: '', exitCode: 0,
 			});
 
 			const history = await backend.getFileHistory('/src/foo.ts');
 			expect(history).toHaveLength(2);
 			expect(history[0].changesetId).toBe(42);
-			expect(history[0].type).toBe('added');
+			expect(history[0].comment).toBe('initial commit');
+			expect(history[0].type).toBe('changed');
+			expect(history[1].changesetId).toBe(43);
 			expect(history[1].type).toBe('changed');
 		});
 
-		it('handles deleted type in history', async () => {
+		it('handles comments containing # characters', async () => {
+			// {comment} is the last field, so '#' in comments is safe.
 			mockExecCm.mockResolvedValue({
-				stdout: '42#/main#alice#2026-01-01#removed#deleted\n',
+				stdout: '42#/main#alice#2026-01-01#fix issue #123 and #456\n',
 				stderr: '', exitCode: 0,
 			});
 
-			const history = await backend.getFileHistory('/src/old.ts');
-			expect(history[0].type).toBe('deleted');
+			const history = await backend.getFileHistory('/src/foo.ts');
+			expect(history[0].comment).toBe('fix issue #123 and #456');
 		});
 
 		it('does not pass --dateformat to cm history', async () => {
 			// cm history does NOT support --dateformat (only cm find does).
 			// Passing it causes "Unexpected option --dateformat" errors.
 			mockExecCm.mockResolvedValue({
-				stdout: '42#/main#alice#2026-01-01#initial#add\n',
+				stdout: '42#/main#alice#2026-01-01#initial\n',
 				stderr: '', exitCode: 0,
 			});
 
