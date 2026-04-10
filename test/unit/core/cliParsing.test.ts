@@ -158,28 +158,104 @@ describe('CLI output parsing edge cases', () => {
 
 	describe('changeset parsing — edge cases', () => {
 		it('handles changeset with # in comment', async () => {
-			// Comment field contains # — the parser splits on # so extra #s go into comment
+			// Comment field contains # — the @@CS@@ marker approach with {comment}
+			// last means extra #s are collected into the comment via join.
 			mockExecCm.mockResolvedValue({
-				stdout: '42#/main#alice#2026-01-01#fix issue #123#41\n',
+				stdout: '@@CS@@42#/main#alice#2026-01-01T00:00:00Z#41#fix issue #123\n',
 				stderr: '', exitCode: 0,
 			});
 
 			const result = await backend.listChangesets();
 			expect(result).toHaveLength(1);
 			expect(result[0].id).toBe(42);
-			// Comment includes everything after the 4th #, parent is last field
-			// The parser takes parts[4] as comment and parts[5] as parent
-			expect(result[0].comment).toBe('fix issue ');
+			expect(result[0].parent).toBe(41);
+			expect(result[0].comment).toBe('fix issue #123');
 		});
 
 		it('handles NaN changeset IDs', async () => {
 			mockExecCm.mockResolvedValue({
-				stdout: 'not-a-number#/main#alice#2026-01-01#comment#0\n',
+				stdout: '@@CS@@not-a-number#/main#alice#2026-01-01T00:00:00Z#0#comment\n',
 				stderr: '', exitCode: 0,
 			});
 
 			const result = await backend.listChangesets();
 			expect(result).toHaveLength(0);
+		});
+
+		it('does not drop changesets with multi-line comments', async () => {
+			// Before the fix, multi-line comments fragmented the record across
+			// newlines, causing both fragments to fail the parts.length check
+			// and silently dropping the changeset.
+			mockExecCm.mockResolvedValue({
+				stdout: [
+					'@@CS@@10#/main#alice#2026-01-01T00:00:00Z#9#simple comment',
+					'@@CS@@11#/main#bob#2026-01-02T00:00:00Z#10#line one',
+					'line two',
+					'line three',
+					'@@CS@@12#/main#carol#2026-01-03T00:00:00Z#11#another simple',
+				].join('\n'),
+				stderr: '', exitCode: 0,
+			});
+
+			const result = await backend.listChangesets();
+			expect(result).toHaveLength(3);
+			expect(result[0].id).toBe(10);
+			expect(result[0].comment).toBe('simple comment');
+			expect(result[1].id).toBe(11);
+			expect(result[1].comment).toBe('line one\nline two\nline three');
+			expect(result[1].parent).toBe(10);
+			expect(result[2].id).toBe(12);
+			expect(result[2].comment).toBe('another simple');
+		});
+
+		it('handles comments with multiple # characters and preserves full text', async () => {
+			mockExecCm.mockResolvedValue({
+				stdout: '@@CS@@50#/main/feature#dev#2026-03-15T10:30:00Z#49#fix #42: refactor auth (#17) — closes #99\n',
+				stderr: '', exitCode: 0,
+			});
+
+			const result = await backend.listChangesets();
+			expect(result).toHaveLength(1);
+			expect(result[0].id).toBe(50);
+			expect(result[0].branch).toBe('/main/feature');
+			expect(result[0].parent).toBe(49);
+			expect(result[0].comment).toBe('fix #42: refactor auth (#17) — closes #99');
+		});
+
+		it('handles empty comment', async () => {
+			mockExecCm.mockResolvedValue({
+				stdout: '@@CS@@7#/main#alice#2026-01-01T00:00:00Z#6#\n',
+				stderr: '', exitCode: 0,
+			});
+
+			const result = await backend.listChangesets();
+			expect(result).toHaveLength(1);
+			expect(result[0].id).toBe(7);
+			expect(result[0].comment).toBeUndefined();
+		});
+
+		it('falls back to no-parent parser and handles multi-line comments', async () => {
+			// First call fails with "parent" in stderr → triggers fallback
+			mockExecCm.mockResolvedValueOnce({
+				stdout: '', stderr: 'Unknown field: parent', exitCode: 1,
+			});
+			// Fallback call succeeds with @@CS@@ marker format (no parent field)
+			mockExecCm.mockResolvedValueOnce({
+				stdout: [
+					'@@CS@@20#/main#alice#2026-01-01T00:00:00Z#first line',
+					'second line',
+					'@@CS@@21#/main#bob#2026-01-02T00:00:00Z#simple',
+				].join('\n'),
+				stderr: '', exitCode: 0,
+			});
+
+			const result = await backend.listChangesets();
+			expect(result).toHaveLength(2);
+			expect(result[0].id).toBe(20);
+			expect(result[0].comment).toBe('first line\nsecond line');
+			expect(result[0].parent).toBe(19); // best-guess sequential parent
+			expect(result[1].id).toBe(21);
+			expect(result[1].comment).toBe('simple');
 		});
 	});
 

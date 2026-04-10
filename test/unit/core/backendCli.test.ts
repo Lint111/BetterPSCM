@@ -477,9 +477,9 @@ describe('CliBackend', () => {
 	});
 
 	describe('listChangesets', () => {
-		it('parses changeset lines with parent field', async () => {
+		it('parses changeset records with parent field', async () => {
 			mockExecCm.mockResolvedValue({
-				stdout: '42#/main#alice#2026-01-01#fix bug#41\n43#/main#bob#2026-01-02#add feature#42\n',
+				stdout: '@@CS@@42#/main#alice#2026-01-01#41#fix bug\n@@CS@@43#/main#bob#2026-01-02#42#add feature\n',
 				stderr: '',
 				exitCode: 0,
 			});
@@ -500,9 +500,9 @@ describe('CliBackend', () => {
 				stderr: 'parent field not valid',
 				exitCode: 1,
 			});
-			// Second call succeeds without parent
+			// Second call succeeds without parent (@@CS@@ marker, comment last)
 			mockExecCm.mockResolvedValueOnce({
-				stdout: '42#/main#alice#2026-01-01#fix bug\n',
+				stdout: '@@CS@@42#/main#alice#2026-01-01#fix bug\n',
 				stderr: '',
 				exitCode: 0,
 			});
@@ -515,7 +515,7 @@ describe('CliBackend', () => {
 
 		it('includes branch filter when provided', async () => {
 			mockExecCm.mockResolvedValue({
-				stdout: '10#/main/feature#dev#2026-01-01#wip#9\n',
+				stdout: '@@CS@@10#/main/feature#dev#2026-01-01#9#wip\n',
 				stderr: '',
 				exitCode: 0,
 			});
@@ -526,9 +526,9 @@ describe('CliBackend', () => {
 			expect(args.join(' ')).toContain('limit 10');
 		});
 
-		it('skips malformed lines', async () => {
+		it('skips malformed records', async () => {
 			mockExecCm.mockResolvedValue({
-				stdout: '42#/main#alice#2026-01-01#fix#41\nbad line\n',
+				stdout: '@@CS@@42#/main#alice#2026-01-01#41#fix\n@@CS@@bad#data\n',
 				stderr: '',
 				exitCode: 0,
 			});
